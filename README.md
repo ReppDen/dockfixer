@@ -1,38 +1,70 @@
 # DockFix
 
-Pulls macOS windows out from under the Dock.
+**Pulls macOS windows out from under the Dock.**
 
-Unplug an external display and macOS moves your windows onto the built-in
-screen — often partly underneath the Dock, where their edges and controls are
-unreachable. macOS has no setting that makes the Dock an obstacle windows
-cannot cross, so the usual fix is resizing every window by hand.
+[![CI](https://github.com/ReppDen/dockfix/actions/workflows/ci.yml/badge.svg)](https://github.com/ReppDen/dockfix/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/ReppDen/dockfix?sort=semver)](https://github.com/ReppDen/dockfix/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-lightgrey)
+
+---
+
+## The problem
+
+Unplug an external display and macOS moves your windows onto the built-in screen
+— often partly underneath the Dock, where their edges and controls are
+unreachable. macOS has no setting that makes the Dock an obstacle windows cannot
+cross, so the usual fix is dragging and resizing every window by hand, one at a
+time, after every disconnect.
 
 DockFix does it in one press, or automatically whenever the display
 configuration changes.
 
 ## What it does
 
+```
+ before                              after
+┌──────────────────────────┐        ┌──────────────────────────┐
+│▓▓┌──────────────────────┐│        │▓▓ ┌────────────────────┐ │
+│▓▓│                      ││   ──▶  │▓▓ │                    │ │
+│▓▓│   window under the   ││        │▓▓ │  moved clear of it │ │
+│▓▓│   Dock, edge cut off ││        │▓▓ │  and narrowed      │ │
+│▓▓└──────────────────────┘│        │▓▓ └────────────────────┘ │
+└──────────────────────────┘        └──────────────────────────┘
+  ▓ = Dock
+```
+
 For every window that overlaps the Dock or the menu bar:
 
-- it slides the window into the usable area — by the actual overlap, so a window
-  only half-way under the Dock moves less than the Dock's full width;
-- if sliding would push the far edge off-screen, it also narrows the window by
-  exactly the distance it moved, so the far edge stays where it was;
-- if a window is larger than the usable area to begin with, it is sized down to
-  fit.
+- **Slides it into the usable area** — by the actual overlap, so a window only
+  half-way under the Dock moves less than the Dock's full width.
+- **Narrows it if sliding is not enough** — when moving alone would push the far
+  edge off-screen, the window is shortened by exactly the distance it moved, so
+  its far edge stays where it was.
+- **Sizes it down if it never fitted** — a window larger than the usable area is
+  fitted to it.
 
-Windows it cannot move are written to the log with the reason — no silent
+Windows it cannot move are written to the log with the reason. No silent
 failures.
 
-Bounds come from each screen's visible frame, which already excludes the Dock
-and the menu bar. So the Dock's position is never hardcoded: left, right and
-bottom Docks all work, an auto-hidden Dock correctly becomes a no-op, and moving
-the Dock triggers a pass of its own.
+Bounds come from each screen's *visible frame*, which already excludes the Dock
+and the menu bar. The Dock's position is therefore never hardcoded: Docks on the
+left, right and bottom all work, an auto-hidden Dock correctly becomes a no-op,
+and moving or resizing the Dock triggers a pass of its own.
+
+## Requirements
+
+- macOS 14 or later, Apple silicon or Intel
+- Accessibility permission (see [First run](#first-run))
+- To build: Command Line Tools only — `xcode-select --install`. A full Xcode
+  install is **not** required.
 
 ## Install
 
+### From a release
+
 Download the latest `.zip` from
-[Releases](../../releases), then:
+[Releases](https://github.com/ReppDen/dockfix/releases/latest), then:
 
 ```sh
 unzip DockFix-*.zip -d /Applications
@@ -40,92 +72,125 @@ xattr -dr com.apple.quarantine /Applications/DockFix.app
 open /Applications/DockFix.app
 ```
 
-The `xattr` line is needed because the app is ad-hoc signed rather than notarised
-with an Apple Developer ID. Without it macOS refuses to open the app and sends
-you to System Settings → Privacy & Security → *Open Anyway*. Building from
-source avoids the issue entirely — locally built apps are never quarantined.
+The `xattr` line is required. Release builds are ad-hoc signed, not notarised
+with an Apple Developer ID, so without it macOS refuses to open the app and sends
+you to System Settings → Privacy & Security → *Open Anyway*.
 
-### Build from source
-
-Requires only the Command Line Tools (`xcode-select --install`); a full Xcode
-install is not needed.
+### From source
 
 ```sh
-git clone https://github.com/drepp/DockFix.git
-cd DockFix
-make run
+git clone https://github.com/ReppDen/dockfix.git
+cd dockfix
+make dev        # builds, signs with a local identity, installs to /Applications
+open /Applications/DockFix.app
 ```
 
-## Grant Accessibility access
+Locally built apps are never quarantined, so the `xattr` step does not apply.
+
+`make dev` is preferred over `make install` even if you are not developing: it
+signs with a self-signed certificate so the Accessibility permission survives
+rebuilds. See [Keeping the Accessibility grant](#keeping-the-accessibility-grant-across-rebuilds)
+for why that matters.
+
+## First run
 
 Moving another application's window is only possible through the Accessibility
-API, so macOS requires explicit permission. On first launch DockFix asks; if you
+API, so macOS requires explicit permission. DockFix asks on first launch. If you
 miss the prompt, press **Grant…** in the window, or add DockFix yourself under
 System Settings → Privacy & Security → Accessibility.
 
-## Using it
+> **Always launch the bundle**, with `open /Applications/DockFix.app`, from
+> Finder, or from Spotlight — never by running `DockFix.app/Contents/MacOS/DockFix`
+> from a shell. macOS attributes Accessibility requests to the process
+> *responsible* for the launch, so a binary started from a terminal asks for the
+> **terminal's** access and leaves DockFix's own permission no longer matching.
+> That is also why DockFix has no command-line interface.
+
+## Usage
 
 DockFix has a Dock icon, an app-switcher entry and a menu-bar item. It has to be
 running when a display is unplugged, so switch on **Launch at login** and forget
-about it — the automatic pass is enabled by default.
+about it — automatic correction is enabled by default.
 
 Closing the window does not quit: DockFix stays in the menu bar, and clicking its
 Dock icon brings the window back. Quitting is explicit, from the button or ⌘Q.
 
 | Control | What it does |
 | --- | --- |
-| **Fix Windows Now** | Moves every window that overlaps the Dock or the menu bar. |
+| **Fix Windows Now** *(menu bar)* | Moves every window that overlaps the Dock or the menu bar. |
 | **Fix automatically when displays change** | Runs a pass whenever a display is connected or disconnected, or the Dock moves. On by default. |
 | **Launch at login** | Registers DockFix as a login item. macOS may ask you to allow it under System Settings → General → Login Items. |
-| **Check Windows** (window) | Lists what a move would touch, with current and proposed geometry. Changes nothing. |
-| **Move Windows** (window) | Applies those corrections. |
-| **Quit** | Fully quits. Closing the window leaves DockFix running in the menu bar. |
+| **Check Windows** *(window)* | Lists what a move would touch, with current and proposed geometry. Changes nothing. |
+| **Move Windows** *(window)* | Applies those corrections. |
+| **Quit** | Fully quits. |
 
 Opening DockFix yourself always shows the window. When launchd starts it at login
-and access is already granted it comes up quietly instead, with just the two
+and permission is already granted it comes up quietly instead, with just the two
 icons — there is nothing to report and nothing to do.
 
-Always start DockFix by launching the bundle — `open /Applications/DockFix.app`,
-or from Finder or Spotlight — and never by running
-`DockFix.app/Contents/MacOS/DockFix` from a shell. macOS attributes Accessibility
-requests to the process responsible for the launch, so a binary started from a
-terminal asks for the *terminal's* access and leaves DockFix's own grant no longer
-matching. That is also why DockFix has no command-line interface.
+An automatic pass does not fire the instant a display disappears. macOS sends the
+change notification several times in a burst, and WindowServer goes on relocating
+windows afterwards, so DockFix waits for the layout to stop changing before
+acting.
 
-The automatic pass does not fire the instant a display disappears. macOS sends
-the change notification several times in a burst and WindowServer goes on
-relocating windows afterwards, so DockFix waits for the layout to stop changing
-before acting.
+## Logs
 
-## Log
-
-Live in the window, and on disk at:
+Shown live in the window, and written to:
 
 ```
 ~/Library/Logs/DockFix/dockfix.log
 ```
 
 ```
-[14:22:07.113] INFO   displays changed: 2 -> 1, settled after 2 polls
-[14:22:07.240] MOVED  Warp               "main"  (12,180 1400x900) -> (67,180 1345x900) shiftX=55 shrinkW=55
-[14:22:07.251] SKIP   Finder             "Downloads"  would move to (67,180 800x600) but position is not settable
-[14:22:07.262] SKIP   Music              fullscreen
-[14:22:07.310] FAIL   IntelliJ IDEA      "proj"  want (67,180 1345x900) got (12,180 1400x900) after 3 tries
+[20:18:52.575] INFO   displays changed: 2 -> 1, settled after 1 polls
+[20:18:52.575] INFO   move triggered by displays changed: 2 -> 1, settled after 1 polls
+[20:18:53.357] MOVED  Google Chrome   "docs"  (0,33 1512x949) -> (49,33 1463x949) shiftX=49 shrinkW=49 clamped
+[20:18:53.357] MOVED  WhatsApp        "WhatsApp"  (48,33 1201x949) -> (49,33 1201x949) shiftX=1
+[20:18:53.357] SKIP   Finder          read-only window covering the whole display — desktop or system layer
+[20:18:53.357] FAIL   IntelliJ IDEA   "proj"  want (49,33 1463x949) got (0,33 1512x949) after 3 tries
+[20:18:53.357] INFO   move done — 27 windows in 23 apps, 9 need fixing, 9 moved, 1 skipped
 ```
+
+| Level | Meaning |
+| --- | --- |
+| `INFO` | Passes, display changes, permission changes. |
+| `MOVED` | Window corrected, with before, after, and by how much. |
+| `SKIP` | Window deliberately left alone, with the reason. |
+| `FAIL` | Correction was attempted and did not stick, with what was asked for and what happened. |
+
+## Troubleshooting
+
+**The switch in System Settings is on, but DockFix says it has no access.**
+A permission record left over from a previous build no longer matches the current
+one. Toggling the switch off and on does **not** help — that re-authorises the
+same stale record. Remove the DockFix row with the **−** button and grant it
+again, or run:
+
+```sh
+tccutil reset Accessibility com.github.drepp.dockfix
+```
+
+**I granted access and nothing changed.** A process that has already been denied
+caches the answer. Quit DockFix and start it again.
+
+**A window will not move.** Check the log. Fixed-size dialogs, some Java and Qt
+windows, and the Finder desktop cannot be moved through the Accessibility API at
+all; these are reported as `SKIP` or `FAIL` rather than being retried forever.
+
+**Windows on my other desktop were ignored.** Expected — see below.
 
 ## Known limitations
 
 - **Other Spaces.** The Accessibility API only reports windows on the current
   Space, so windows parked on another desktop are neither listed nor moved.
   Working around this requires disabling System Integrity Protection, which
-  DockFix will not ask you to do. Switch to the Space and press **Move Windows**.
-- **Accessibility must be re-granted after an update.** Because the app is
-  ad-hoc signed, its code hash changes with every build, and macOS ties the grant
-  to that hash rather than to a Developer ID. Expect to re-approve DockFix after
-  upgrading. `make reset-tcc` clears a stale grant during development.
+  DockFix will not ask you to do. Switch to that Space and press **Fix Windows
+  Now**.
+- **Not notarised.** Release builds are ad-hoc signed, so the first launch needs
+  the `xattr` command above, and the Accessibility permission has to be granted
+  again after an update. Building from source with `make dev` avoids both.
 - **Stubborn applications.** Some windows refuse to move or resize through the
-  Accessibility API — fixed-size dialogs, and a few Java and Qt apps. They are
-  reported as `SKIP` or `FAIL`.
+  Accessibility API. They are reported, never silently dropped.
 - **Minimum window sizes.** Narrowing can fail when an application enforces a
   minimum width. Logged as `FAIL` with what was requested and what was applied.
 - **Full-screen and minimised windows** are left alone on purpose.
@@ -134,80 +199,85 @@ Live in the window, and on disk at:
 
 ```sh
 make            # build build/DockFix.app
-make run        # build and launch
+make dev        # build signed with a local identity and install to /Applications
+make dev-cert   # create that local signing identity on its own
+make run        # build and launch from build/
 make test       # unit tests
-make install    # copy to /Applications
-make reset-tcc  # clear the Accessibility grant
+make icon       # regenerate AppIcon.icns
+make install    # copy to /Applications (ad-hoc signed)
+make uninstall  # remove the installed bundle and its Accessibility permission
+make reset-tcc  # clear the Accessibility permission
 make zip        # release artefact
+make clean
 make help       # list targets
 ```
 
+### Project layout
+
+| Path | Contents |
+| --- | --- |
+| `Sources/DockFixCore/Geometry.swift` | The correction rule. Pure functions, no system calls — where the behaviour is decided and tested. |
+| `Sources/DockFixCore/ScreenMap.swift` | Converts `NSScreen` rects into the Accessibility API's coordinate space. |
+| `Sources/DockFixCore/AX.swift` | Wrappers over the C Accessibility API. |
+| `Sources/DockFixCore/WindowScanner.swift` | Enumerates windows, applies corrections, verifies they stuck. |
+| `Sources/DockFixCore/DisplayWatcher.swift` | Display-change detection and settling. |
+| `Sources/DockFixCore/Log.swift` | File log and the in-memory buffer the window renders. |
+| `Sources/DockFix/` | SwiftUI window, menu-bar item, app state. |
+| `Tests/DockFixTests/` | Unit tests. |
+| `Scripts/make-icon.swift` | Draws the app icon, so no binary artwork is committed. |
+| `Scripts/dev-cert.sh` | Creates the local code-signing identity. |
+
+### Notes for contributors
+
+- **Tests are a plain executable**, run with `make test`, not `swift test`. On
+  macOS `swift test` packages tests as an XCTest bundle, and XCTest ships with
+  Xcode — this project is meant to build and test with the Command Line Tools
+  alone. `Tests/DockFixTests/Harness.swift` is the whole framework.
+- **All window geometry is in Accessibility coordinates**: origin at the top-left
+  of the primary display, y growing *downwards*. `NSScreen` uses the opposite
+  vertical convention. The conversion happens once, in `ScreenMap`. Mixing the two
+  is the fastest way to send windows off the bottom of the screen.
+- **The correction rule lives in `Geometry.swift` and is pure.** Behaviour changes
+  belong there, with a case added to the table in `GeometryTests.swift` — no
+  displays or permissions needed to run it.
+
 ### Keeping the Accessibility grant across rebuilds
 
-Use `make dev` rather than `make install` while working on DockFix:
+Use `make dev` rather than `make install`.
 
-```sh
-make dev     # creates a local signing identity if needed, then builds and installs
-```
+An ad-hoc signature has no stable identity, so macOS keys the Accessibility
+permission to the binary's code hash. Every rebuild produces a new hash and the
+permission stops applying — while the switch in System Settings stays on, which
+reads as a bug in the app rather than a stale record.
 
-An ad-hoc signature has no stable identity, so macOS keys the Accessibility grant
-to the binary's code hash. Every rebuild produces a new hash and the grant stops
-applying — while the switch in System Settings stays on, which makes it look like
-a bug in the app. The only way out is deleting the row by hand.
-
-`make dev` signs with a self-signed certificate created by
-`Scripts/dev-cert.sh`, which gives a designated requirement based on the
-certificate instead:
+`make dev` signs with a self-signed certificate created by `Scripts/dev-cert.sh`,
+giving a designated requirement based on the certificate instead:
 
 ```
 designated => identifier "com.github.drepp.dockfix" and certificate leaf = H"…"
 ```
 
-That is stable across rebuilds, so the grant is given once. The certificate lives
-in its own keychain (`dockfix-dev.keychain`) with a known password so nothing
-prompts, and it is only used locally — releases stay ad-hoc signed.
+That is stable across rebuilds, so the permission is granted once. The
+certificate lives in its own keychain (`dockfix-dev.keychain`) with a known
+password so nothing prompts, and it is only used locally — releases stay ad-hoc
+signed.
 
-If the grant is already in the stuck state — the switch is on but DockFix still
-reports no access — the record left over from an ad-hoc build has to go. Turning
-the switch off and on again does **not** clear it: that re-authorises the same
-stale record. Either remove the row with the **−** button, or, once the app is
-signed with a certificate, run:
+`tccutil reset` also only works once the app is signed this way. For an ad-hoc
+build it fails with `No such bundle identifier`, because the record is keyed by
+the code hash rather than the bundle identifier.
 
-```sh
-tccutil reset Accessibility com.github.drepp.dockfix
-```
+`todo_permissions.md` records the three distinct causes that produce this one
+symptom, in more detail than most people will ever need.
 
-`tccutil` only works after the switch to certificate signing. For an ad-hoc build
-it fails with `No such bundle identifier`, because the record is keyed by the code
-hash rather than the bundle identifier.
+## Contributing
 
-One more quirk: a process that has been denied caches the answer, so after
-granting access DockFix has to be restarted before it notices — the two-second
-poll only catches a grant made while access was never requested.
+Issues and pull requests are welcome.
 
-Layout:
-
-| Path | Contents |
-| --- | --- |
-| `Sources/DockFixCore/Geometry.swift` | The correction rule. Pure functions, no system calls — this is where the behaviour is decided and tested. |
-| `Sources/DockFixCore/ScreenMap.swift` | Converts `NSScreen` rects into the Accessibility API's coordinate space. |
-| `Sources/DockFixCore/AX.swift` | Wrappers over the C Accessibility API. |
-| `Sources/DockFixCore/WindowScanner.swift` | Enumerates windows, applies corrections, verifies they stuck. |
-| `Sources/DockFixCore/DisplayWatcher.swift` | Display-change detection and settling. |
-| `Sources/DockFix/` | SwiftUI window and app state. |
-| `Tests/DockFixTests/` | Unit tests. |
-
-Two notes for contributors:
-
-- The tests are a plain executable with a small hand-rolled harness, run by
-  `make test`, not by `swift test`. On macOS `swift test` packages tests as an
-  XCTest bundle, and XCTest ships with Xcode — the project is meant to build and
-  test with the Command Line Tools alone.
-- All window geometry inside DockFix is in Accessibility coordinates: origin at
-  the top-left of the primary display, y growing downwards. `NSScreen` uses the
-  opposite vertical convention, and the conversion happens once, in
-  `ScreenMap`. Mixing the two is the fastest way to send windows off the bottom
-  of the screen.
+- Run `make test` before opening a pull request; CI runs the same thing.
+- Keep behaviour changes in `Geometry.swift` covered by a case in the test table.
+- If a specific application misbehaves, please include the relevant `SKIP` or
+  `FAIL` lines from `~/Library/Logs/DockFix/dockfix.log` — they carry the window
+  geometry and the reason.
 
 ## License
 

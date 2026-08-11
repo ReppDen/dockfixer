@@ -20,9 +20,19 @@ ZIP       := $(BUILD_DIR)/$(APP_NAME)-$(VERSION).zip
 ICONSET := $(BUILD_DIR)/AppIcon.iconset
 ICNS    := $(BUILD_DIR)/AppIcon.icns
 
-.PHONY: all app icon run test install uninstall reset-tcc zip clean help
+DEV_IDENTITY := DockFix Dev
+
+.PHONY: all app icon run test install uninstall dev dev-cert reset-tcc zip clean help
 
 all: app
+
+## dev-cert: create a self-signed code-signing identity for local builds
+dev-cert:
+	./Scripts/dev-cert.sh
+
+## dev: build and install signed with the local identity, so the Accessibility grant survives rebuilds
+dev: dev-cert
+	$(MAKE) install SIGN_IDENTITY="$(DEV_IDENTITY)"
 
 ## icon: draw the app icon and build AppIcon.icns
 icon: $(ICNS)

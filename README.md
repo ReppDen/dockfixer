@@ -146,21 +146,34 @@ make help       # list targets
 
 ### Keeping the Accessibility grant across rebuilds
 
-An ad-hoc signature changes with every build, and macOS keys the Accessibility
-grant to that hash — so by default each rebuild means another trip through
-System Settings. A self-signed code-signing certificate gives the app a stable
-identity and the grant survives:
+Use `make dev` rather than `make install` while working on DockFix:
 
-1. Keychain Access → Certificate Assistant → Create a Certificate…
-2. Name `DockFix Dev`, Identity Type *Self Signed Root*, Certificate Type
-   *Code Signing*.
-3. Build with it:
+```sh
+make dev     # creates a local signing identity if needed, then builds and installs
+```
 
-   ```sh
-   make app SIGN_IDENTITY="DockFix Dev"
-   ```
+An ad-hoc signature has no stable identity, so macOS keys the Accessibility grant
+to the binary's code hash. Every rebuild produces a new hash and the grant stops
+applying — while the switch in System Settings stays on, which makes it look like
+a bug in the app. The only way out is deleting the row by hand.
 
-Releases stay ad-hoc signed; this only affects local builds.
+`make dev` signs with a self-signed certificate created by
+`Scripts/dev-cert.sh`, which gives a designated requirement based on the
+certificate instead:
+
+```
+designated => identifier "com.github.drepp.dockfix" and certificate leaf = H"…"
+```
+
+That is stable across rebuilds, so the grant is given once. The certificate lives
+in its own keychain (`dockfix-dev.keychain`) with a known password so nothing
+prompts, and it is only used locally — releases stay ad-hoc signed.
+
+If the grant does get into the stuck state, remove the DockFix row in
+System Settings → Privacy & Security → Accessibility with the **−** button and
+grant it again. `tccutil reset Accessibility com.github.drepp.dockfix` does not
+help for an ad-hoc signed build, because the record is not keyed by the bundle
+identifier.
 
 Layout:
 

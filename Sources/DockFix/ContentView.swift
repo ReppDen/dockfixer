@@ -47,6 +47,9 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle("Fix windows automatically when displays change", isOn: $state.autoFixEnabled)
                 .toggleStyle(.checkbox)
+            Toggle("Launch at login", isOn: $state.launchAtLogin)
+                .toggleStyle(.checkbox)
+                .help("DockFix has to be running when a display is unplugged for the automatic pass to happen")
 
             HStack(spacing: 8) {
                 Button("Check Windows") { state.checkWindows() }

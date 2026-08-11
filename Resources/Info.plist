@@ -26,5 +26,11 @@
 	<string>NSApplication</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<!-- A menu-bar utility: no Dock icon, no app switcher entry. The window is
+	     opened from the menu-bar item. -->
+	<key>LSUIElement</key>
+	<true/>
 </dict>
 </plist>

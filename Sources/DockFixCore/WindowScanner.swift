@@ -7,6 +7,10 @@ public struct WindowOutcome: Sendable {
     public let title: String
     public let level: LogLevel
     public let detail: String
+    /// Set for findings that recur identically on every pass — the Finder
+    /// desktop, for instance. Logged once per session so they do not bury the
+    /// entries that change.
+    public var logOncePerSession = false
 }
 
 /// Result of a whole pass, both for the log and for the counts in the window.
@@ -116,10 +120,11 @@ public final class WindowScanner: Sendable {
         let title = AX.string(window, kAXTitleAttribute as String) ?? ""
         let subrole = AX.string(window, kAXSubroleAttribute as String) ?? "no subrole"
 
-        func skip(_ reason: String) {
+        func skip(_ reason: String, logOncePerSession: Bool = false) {
             summary.skipped += 1
             summary.outcomes.append(WindowOutcome(app: app.name, title: title, level: .skip,
-                                                  detail: "\(reason) [\(subrole)]"))
+                                                  detail: "\(reason) [\(subrole)]",
+                                                  logOncePerSession: logOncePerSession))
         }
 
         if AX.bool(window, kAXMinimizedAttribute as String) == true {
@@ -144,7 +149,8 @@ public final class WindowScanner: Sendable {
         if frame == screen.axFrame,
            title.isEmpty,
            !AX.isSettable(window, kAXPositionAttribute as String) {
-            return skip("read-only window covering the whole display — desktop or system layer")
+            return skip("read-only window covering the whole display — desktop or system layer",
+                        logOncePerSession: true)
         }
 
         guard let fix = computeFix(window: frame, visible: screen.axVisibleFrame) else {

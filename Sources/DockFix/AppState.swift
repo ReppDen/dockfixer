@@ -7,12 +7,22 @@ import SwiftUI
 @MainActor
 final class AppState: ObservableObject {
 
-    /// Persisted so the setting survives a restart.
+    /// On by default: correcting windows after a display change is the entire
+    /// point, and a user who does not want it can switch it off.
     @Published var autoFixEnabled: Bool {
         didSet {
             guard oldValue != autoFixEnabled else { return }
             UserDefaults.standard.set(autoFixEnabled, forKey: Self.autoFixKey)
             autoFixEnabled ? watcher?.start() : watcher?.stop()
+        }
+    }
+
+    /// Mirrors `SMAppService`; kept in sync rather than trusted blindly, because
+    /// macOS can hold the registration back pending approval.
+    @Published var launchAtLogin: Bool {
+        didSet {
+            guard oldValue != launchAtLogin, !isSyncingLoginItem else { return }
+            applyLaunchAtLogin()
         }
     }
 
@@ -29,10 +39,20 @@ final class AppState: ObservableObject {
     private let scanner = WindowScanner()
     private var watcher: DisplayWatcher?
     private var pollTimer: Timer?
+    private var isSyncingLoginItem = false
+
+    /// A pass requested while another was running. Display changes must not be
+    /// dropped just because a pass happened to be in flight.
+    private var queuedRun: (dryRun: Bool, trigger: String)?
+
+    /// Findings that repeat identically on every pass, already logged once.
+    private var noticesLogged = Set<String>()
 
     init() {
         log = Log()
+        UserDefaults.standard.register(defaults: [Self.autoFixKey: true])
         autoFixEnabled = UserDefaults.standard.bool(forKey: Self.autoFixKey)
+        launchAtLogin = LoginItem.isEnabled
         isTrusted = WindowScanner.isTrusted
 
         watcher = DisplayWatcher(log: log) { [weak self] reason in
@@ -41,6 +61,8 @@ final class AppState: ObservableObject {
 
         refreshDisplays()
         log.info("DockFix ready — \(displaysSummary)")
+        log.info("launch at login: \(LoginItem.statusDescription)")
+
         if !isTrusted {
             log.info("Accessibility access not granted yet; approve DockFix in the system prompt, or press Grant")
             // Ask straight away rather than at the first button press: the grant
@@ -62,11 +84,11 @@ final class AppState: ObservableObject {
 
     /// Lists what a move would touch, without touching anything.
     func checkWindows() {
-        run(dryRun: true, trigger: nil)
+        run(dryRun: true, trigger: "Check Windows")
     }
 
     func moveWindows() {
-        run(dryRun: false, trigger: nil)
+        run(dryRun: false, trigger: "Move Windows")
     }
 
     func requestAccessibility() {
@@ -81,6 +103,7 @@ final class AppState: ObservableObject {
 
     func clearLog() {
         log.clear()
+        noticesLogged.removeAll()
     }
 
     func openLogFile() {
@@ -99,9 +122,7 @@ final class AppState: ObservableObject {
 
     // MARK: - Internals
 
-    private func run(dryRun: Bool, trigger: String?) {
-        guard !isBusy else { return }
-
+    private func run(dryRun: Bool, trigger: String) {
         guard isTrusted else {
             log.add(level: .fail, app: "DockFix", title: "",
                     detail: "cannot scan windows without Accessibility access")
@@ -109,21 +130,42 @@ final class AppState: ObservableObject {
             return
         }
 
+        // A display change arriving mid-pass is remembered rather than lost. The
+        // newest request wins; running the same pass twice would be pointless.
+        if isBusy {
+            queuedRun = (dryRun, trigger)
+            log.info("\(trigger) queued — a pass is already running")
+            return
+        }
+
         isBusy = true
         let label = dryRun ? "check" : "move"
-        log.info(trigger.map { "\(label) triggered by \($0)" } ?? "\(label) requested")
+        log.info("\(label) triggered by \(trigger)")
 
         scanner.run(dryRun: dryRun) { [weak self] summary in
             guard let self else { return }
-            for outcome in summary.outcomes {
-                log.add(level: outcome.level,
-                        app: outcome.app,
-                        title: outcome.title,
-                        detail: outcome.detail)
-            }
+            record(summary)
             log.info("\(label) done — \(summary.headline)")
             lastSummary = summary
             isBusy = false
+
+            if let queued = queuedRun {
+                queuedRun = nil
+                run(dryRun: queued.dryRun, trigger: queued.trigger)
+            }
+        }
+    }
+
+    private func record(_ summary: ScanSummary) {
+        for outcome in summary.outcomes {
+            if outcome.logOncePerSession {
+                let key = "\(outcome.app)|\(outcome.detail)"
+                guard noticesLogged.insert(key).inserted else { continue }
+            }
+            log.add(level: outcome.level,
+                    app: outcome.app,
+                    title: outcome.title,
+                    detail: outcome.detail)
         }
     }
 
@@ -133,7 +175,29 @@ final class AppState: ObservableObject {
             isTrusted = trusted
             log.info("Accessibility access \(trusted ? "granted" : "revoked")")
         }
+
+        // Approving a login item happens in System Settings, outside the app.
+        let registered = LoginItem.isEnabled
+        if registered != launchAtLogin {
+            isSyncingLoginItem = true
+            launchAtLogin = registered
+            isSyncingLoginItem = false
+        }
+
         refreshDisplays()
+    }
+
+    private func applyLaunchAtLogin() {
+        do {
+            try LoginItem.set(launchAtLogin)
+            log.info("launch at login: \(LoginItem.statusDescription)")
+        } catch {
+            log.add(level: .fail, app: "DockFix", title: "",
+                    detail: "could not \(launchAtLogin ? "enable" : "disable") launch at login: \(error.localizedDescription)")
+            isSyncingLoginItem = true
+            launchAtLogin = LoginItem.isEnabled
+            isSyncingLoginItem = false
+        }
     }
 
     private func refreshDisplays() {

@@ -65,12 +65,34 @@ System Settings → Privacy & Security → Accessibility.
 
 ## Using it
 
+DockFix lives in the menu bar and has no Dock icon. It has to be running when a
+display is unplugged, so switch on **Launch at login** and forget about it — the
+automatic pass is enabled by default.
+
+The menu-bar item covers the everyday case; the window is for testing and for
+reading the log.
+
 | Control | What it does |
 | --- | --- |
-| **Check Windows** | Lists every window that overlaps the Dock or menu bar, with its current and proposed geometry. Changes nothing. |
-| **Move Windows** | Applies those corrections. |
-| **Fix windows automatically when displays change** | Runs a pass whenever a display is connected or disconnected, or the Dock moves. |
-| **Quit** | Fully quits. Closing the window leaves DockFix running so the automatic pass keeps working. |
+| **Fix Windows Now** | Moves every window that overlaps the Dock or the menu bar. |
+| **Fix automatically when displays change** | Runs a pass whenever a display is connected or disconnected, or the Dock moves. On by default. |
+| **Launch at login** | Registers DockFix as a login item. macOS may ask you to allow it under System Settings → General → Login Items. |
+| **Check Windows** (window) | Lists what a move would touch, with current and proposed geometry. Changes nothing. |
+| **Move Windows** (window) | Applies those corrections. |
+| **Quit** | Fully quits. Closing the window leaves DockFix running in the menu bar. |
+
+The window opens at first launch, because Accessibility access has to be granted
+before anything can happen. Once the grant is in place DockFix starts quietly in
+the menu bar instead — including when it starts at login.
+
+The login item can also be managed from the terminal, which is handy when
+something goes wrong:
+
+```sh
+/Applications/DockFix.app/Contents/MacOS/DockFix --login-item status
+/Applications/DockFix.app/Contents/MacOS/DockFix --login-item register
+/Applications/DockFix.app/Contents/MacOS/DockFix --login-item unregister
+```
 
 The automatic pass does not fire the instant a display disappears. macOS sends
 the change notification several times in a burst and WindowServer goes on

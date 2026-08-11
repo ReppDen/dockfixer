@@ -17,16 +17,40 @@ BUILD_DIR := build
 APP       := $(BUILD_DIR)/$(APP_NAME).app
 ZIP       := $(BUILD_DIR)/$(APP_NAME)-$(VERSION).zip
 
-.PHONY: all app run test install uninstall reset-tcc zip clean help
+ICONSET := $(BUILD_DIR)/AppIcon.iconset
+ICNS    := $(BUILD_DIR)/AppIcon.icns
+
+.PHONY: all app icon run test install uninstall reset-tcc zip clean help
 
 all: app
 
+## icon: draw the app icon and build AppIcon.icns
+icon: $(ICNS)
+
+$(ICNS): Scripts/make-icon.swift
+	mkdir -p "$(ICONSET)"
+	swift Scripts/make-icon.swift "$(BUILD_DIR)/icon-1024.png"
+	# iconutil insists on exactly these names and sizes.
+	sips -z 16 16     "$(BUILD_DIR)/icon-1024.png" --out "$(ICONSET)/icon_16x16.png"      >/dev/null
+	sips -z 32 32     "$(BUILD_DIR)/icon-1024.png" --out "$(ICONSET)/icon_16x16@2x.png"   >/dev/null
+	sips -z 32 32     "$(BUILD_DIR)/icon-1024.png" --out "$(ICONSET)/icon_32x32.png"      >/dev/null
+	sips -z 64 64     "$(BUILD_DIR)/icon-1024.png" --out "$(ICONSET)/icon_32x32@2x.png"   >/dev/null
+	sips -z 128 128   "$(BUILD_DIR)/icon-1024.png" --out "$(ICONSET)/icon_128x128.png"    >/dev/null
+	sips -z 256 256   "$(BUILD_DIR)/icon-1024.png" --out "$(ICONSET)/icon_128x128@2x.png" >/dev/null
+	sips -z 256 256   "$(BUILD_DIR)/icon-1024.png" --out "$(ICONSET)/icon_256x256.png"    >/dev/null
+	sips -z 512 512   "$(BUILD_DIR)/icon-1024.png" --out "$(ICONSET)/icon_256x256@2x.png" >/dev/null
+	sips -z 512 512   "$(BUILD_DIR)/icon-1024.png" --out "$(ICONSET)/icon_512x512.png"    >/dev/null
+	cp "$(BUILD_DIR)/icon-1024.png" "$(ICONSET)/icon_512x512@2x.png"
+	iconutil -c icns "$(ICONSET)" -o "$(ICNS)"
+	@echo "built $(ICNS)"
+
 ## app: build a release binary and wrap it in a .app bundle
-app:
+app: $(ICNS)
 	swift build -c release
 	rm -rf "$(APP)"
 	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
 	cp "$$(swift build -c release --show-bin-path)/$(APP_NAME)" "$(APP)/Contents/MacOS/$(APP_NAME)"
+	cp "$(ICNS)" "$(APP)/Contents/Resources/AppIcon.icns"
 	sed -e 's/__BUNDLE_ID__/$(BUNDLE_ID)/g' -e 's/__VERSION__/$(VERSION)/g' \
 		Resources/Info.plist > "$(APP)/Contents/Info.plist"
 	codesign --force --sign "$(SIGN_IDENTITY)" --identifier "$(BUNDLE_ID)" "$(APP)"

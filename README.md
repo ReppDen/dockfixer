@@ -85,14 +85,12 @@ The window opens at first launch, because Accessibility access has to be granted
 before anything can happen. Once the grant is in place DockFix starts quietly in
 the menu bar instead — including when it starts at login.
 
-The login item can also be managed from the terminal, which is handy when
-something goes wrong:
-
-```sh
-/Applications/DockFix.app/Contents/MacOS/DockFix --login-item status
-/Applications/DockFix.app/Contents/MacOS/DockFix --login-item register
-/Applications/DockFix.app/Contents/MacOS/DockFix --login-item unregister
-```
+Always start DockFix by launching the bundle — `open /Applications/DockFix.app`,
+or from Finder or Spotlight — and never by running
+`DockFix.app/Contents/MacOS/DockFix` from a shell. macOS attributes Accessibility
+requests to the process responsible for the launch, so a binary started from a
+terminal asks for the *terminal's* access and leaves DockFix's own grant no longer
+matching. That is also why DockFix has no command-line interface.
 
 The automatic pass does not fire the instant a display disappears. macOS sends
 the change notification several times in a burst and WindowServer goes on
@@ -169,11 +167,23 @@ That is stable across rebuilds, so the grant is given once. The certificate live
 in its own keychain (`dockfix-dev.keychain`) with a known password so nothing
 prompts, and it is only used locally — releases stay ad-hoc signed.
 
-If the grant does get into the stuck state, remove the DockFix row in
-System Settings → Privacy & Security → Accessibility with the **−** button and
-grant it again. `tccutil reset Accessibility com.github.drepp.dockfix` does not
-help for an ad-hoc signed build, because the record is not keyed by the bundle
-identifier.
+If the grant is already in the stuck state — the switch is on but DockFix still
+reports no access — the record left over from an ad-hoc build has to go. Turning
+the switch off and on again does **not** clear it: that re-authorises the same
+stale record. Either remove the row with the **−** button, or, once the app is
+signed with a certificate, run:
+
+```sh
+tccutil reset Accessibility com.github.drepp.dockfix
+```
+
+`tccutil` only works after the switch to certificate signing. For an ad-hoc build
+it fails with `No such bundle identifier`, because the record is keyed by the code
+hash rather than the bundle identifier.
+
+One more quirk: a process that has been denied caches the answer, so after
+granting access DockFix has to be restarted before it notices — the two-second
+poll only catches a grant made while access was never requested.
 
 Layout:
 

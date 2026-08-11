@@ -66,36 +66,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    func applicationWillFinishLaunching(_ notification: Notification) {
-        handleLoginItemCommandIfNeeded()
-    }
-
-    /// `DockFix --login-item status|register|unregister`, run straight from the
-    /// bundle. Registering a login item depends on how the bundle is signed and
-    /// where it lives, and the failure surfaces as a bare status enum in the UI;
-    /// this prints the actual error.
-    private func handleLoginItemCommandIfNeeded() {
-        let arguments = CommandLine.arguments
-        guard let flag = arguments.firstIndex(of: "--login-item") else { return }
-        let action = flag + 1 < arguments.count ? arguments[flag + 1] : "status"
-
-        do {
-            switch action {
-            case "status": break
-            case "register": try LoginItem.set(true)
-            case "unregister": try LoginItem.set(false)
-            default:
-                print("usage: DockFix --login-item status|register|unregister")
-                exit(2)
-            }
-            print("launch at login: \(LoginItem.statusDescription)")
-            exit(0)
-        } catch {
-            print("error: \(error)")
-            print("launch at login: \(LoginItem.statusDescription)")
-            exit(1)
-        }
-    }
+    // Deliberately no command-line entry points.
+    //
+    // Starting the binary from a shell instead of launching the bundle makes
+    // macOS attribute Accessibility requests to the *responsible process* — the
+    // terminal emulator — rather than to DockFix. The prompt then asks for the
+    // terminal, the request is recorded against it, and DockFix's own grant stops
+    // matching. Debugging that cost several rounds; see todo_permissions.md.
+    //
+    // Everything is driven from the window and the menu-bar item instead.
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // With Accessibility already granted there is nothing to say at launch,

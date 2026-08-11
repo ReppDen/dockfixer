@@ -167,7 +167,7 @@ same stale record. Remove the DockFix row with the **−** button and grant it
 again, or run:
 
 ```sh
-tccutil reset Accessibility com.github.drepp.dockfix
+tccutil reset Accessibility com.github.reppden.dockfix
 ```
 
 **I granted access and nothing changed.** A process that has already been denied
@@ -254,7 +254,7 @@ reads as a bug in the app rather than a stale record.
 giving a designated requirement based on the certificate instead:
 
 ```
-designated => identifier "com.github.drepp.dockfix" and certificate leaf = H"…"
+designated => identifier "com.github.reppden.dockfix" and certificate leaf = H"…"
 ```
 
 That is stable across rebuilds, so the permission is granted once. The
@@ -266,8 +266,8 @@ signed.
 build it fails with `No such bundle identifier`, because the record is keyed by
 the code hash rather than the bundle identifier.
 
-`todo_permissions.md` records the three distinct causes that produce this one
-symptom, in more detail than most people will ever need.
+A denied process also caches the answer, so after granting access DockFix has to
+be restarted before it notices.
 
 ## Contributing
 

@@ -4,3 +4,6 @@ build/
 Package.resolved
 .DS_Store
 *.xcuserdatad
+
+# Working notes kept out of the public repository.
+private_docs/

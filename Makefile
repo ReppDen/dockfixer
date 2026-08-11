@@ -1,5 +1,5 @@
 APP_NAME  := DockFix
-BUNDLE_ID := com.github.drepp.dockfix
+BUNDLE_ID := com.github.reppden.dockfix
 VERSION   := 0.1.0
 
 # "-" means an ad-hoc signature, which is all a release build needs. macOS ties

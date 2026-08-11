@@ -43,7 +43,7 @@ public final class Log: ObservableObject {
 
     private let bufferLimit = 500
     private let rotateAtBytes = 5 * 1024 * 1024
-    private let ioQueue = DispatchQueue(label: "com.github.drepp.dockfix.log", qos: .utility)
+    private let ioQueue = DispatchQueue(label: "com.github.reppden.dockfix.log", qos: .utility)
     private var handle: FileHandle?
 
     private static let lineTime: DateFormatter = {

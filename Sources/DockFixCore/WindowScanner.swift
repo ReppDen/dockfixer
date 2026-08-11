@@ -44,7 +44,7 @@ public final class WindowScanner: Sendable {
     /// the requested rect. Some applications round to their own grid.
     private let tolerance: CGFloat = 2
     private let maxAttempts = 3
-    private let queue = DispatchQueue(label: "com.github.drepp.dockfix.scanner", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "com.github.reppden.dockfix.scanner", qos: .userInitiated)
 
     public init() {}
 

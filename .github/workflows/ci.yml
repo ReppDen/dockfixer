@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: swift --version
+
+      - name: Test
+        run: make test
+
+      - name: Build app bundle
+        run: make app
+
+      - name: Check the bundle is signed and complete
+        run: |
+          codesign --verify --verbose=2 build/DockFix.app
+          /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' build/DockFix.app/Contents/Info.plist

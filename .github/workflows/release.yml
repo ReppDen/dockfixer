@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test
+        run: make test
+
+      - name: Package
+        # The tag drives the version so the bundle and the release agree.
+        run: make zip VERSION="${GITHUB_REF_NAME#v}"
+
+      - name: Checksum
+        id: sum
+        run: |
+          FILE=$(ls build/*.zip)
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+          echo "sha=$(shasum -a 256 "$FILE" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.sum.outputs.file }}
+          body: |
+            DockFix ${{ github.ref_name }}
+
+            SHA-256: `${{ steps.sum.outputs.sha }}`
+
+            This build is ad-hoc signed, not notarised. After downloading:
+
+            ```sh
+            unzip DockFix-*.zip -d /Applications
+            xattr -dr com.apple.quarantine /Applications/DockFix.app
+            open /Applications/DockFix.app
+            ```
+
+            Then grant Accessibility access in
+            System Settings → Privacy & Security → Accessibility.

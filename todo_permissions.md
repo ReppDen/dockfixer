@@ -128,30 +128,21 @@ so nothing was reinstalled and the previously granted bundle was still in place.
 `ActorIsolatedCall` is an error in this toolchain, not a warning, and the failure
 was hidden because the output was piped through `tail -2`.
 
-The claim that a rebuild preserves the grant is therefore **still unverified**.
-The reasoning behind it holds — the designated requirement is certificate-based
-and demonstrably identical across rebuilds — but it has not been observed
-end-to-end.
+The claim that a rebuild preserves the grant was therefore unverified at the time.
 
-## Current state
+**It has since been verified.** At 20:33, after a clean `make test && make dev`
+that actually reinstalled the bundle, the app relaunched with no "not granted"
+line and completed a full pass over 27 windows in 23 applications — which is
+impossible without the grant. Certificate-based signing does what it was meant
+to do.
+
+## Current state — resolved
 
 - `/Applications/DockFix.app` — cert-signed, stable designated requirement.
-- All DockFix processes killed, including the stray terminal-launched instance.
-- Grant is currently broken by cause 3 and needs to be reset and given once more.
-- Working tree has an unbuildable change (the CLI scan flags).
-
-## Next steps
-
-1. Remove the `--check` / `--fix` / `--login-item` command-line entry points and
-   `WindowScanner.runSynchronously`. They are what caused cause 3, and the
-   actor-isolation error came from the same code.
-2. `make test && make dev` — and read the **full** output, not `tail -2`.
-3. `tccutil reset Accessibility com.github.drepp.dockfix`.
-4. `open /Applications/DockFix.app`, grant access once when prompted.
-5. Rebuild once more, relaunch with `open`, and confirm from the log that the
-   grant survived — closing out the unverified claim above.
-6. Tick **Launch at login** in the window; it was unregistered before the bundle
-   was deleted and has not been re-enabled.
+- Grant given once and surviving rebuilds.
+- Launch at login enabled.
+- Command-line entry points removed, so cause 3 cannot recur.
+- Builds clean, 2188 checks passing.
 
 ## Rules of thumb
 

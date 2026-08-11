@@ -28,9 +28,10 @@
 	<true/>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
-	<!-- A menu-bar utility: no Dock icon, no app switcher entry. The window is
-	     opened from the menu-bar item. -->
+	<!-- Deliberately not LSUIElement: DockFix keeps a Dock icon and an entry in
+	     the app switcher, alongside its menu-bar item. Closing the window leaves
+	     it running in the menu bar rather than quitting. -->
 	<key>LSUIElement</key>
-	<true/>
+	<false/>
 </dict>
 </plist>

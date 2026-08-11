@@ -65,12 +65,12 @@ System Settings → Privacy & Security → Accessibility.
 
 ## Using it
 
-DockFix lives in the menu bar and has no Dock icon. It has to be running when a
-display is unplugged, so switch on **Launch at login** and forget about it — the
-automatic pass is enabled by default.
+DockFix has a Dock icon, an app-switcher entry and a menu-bar item. It has to be
+running when a display is unplugged, so switch on **Launch at login** and forget
+about it — the automatic pass is enabled by default.
 
-The menu-bar item covers the everyday case; the window is for testing and for
-reading the log.
+Closing the window does not quit: DockFix stays in the menu bar, and clicking its
+Dock icon brings the window back. Quitting is explicit, from the button or ⌘Q.
 
 | Control | What it does |
 | --- | --- |
@@ -81,9 +81,9 @@ reading the log.
 | **Move Windows** (window) | Applies those corrections. |
 | **Quit** | Fully quits. Closing the window leaves DockFix running in the menu bar. |
 
-The window opens at first launch, because Accessibility access has to be granted
-before anything can happen. Once the grant is in place DockFix starts quietly in
-the menu bar instead — including when it starts at login.
+Opening DockFix yourself always shows the window. When launchd starts it at login
+and access is already granted it comes up quietly instead, with just the two
+icons — there is nothing to report and nothing to do.
 
 Always start DockFix by launching the bundle — `open /Applications/DockFix.app`,
 or from Finder or Spotlight — and never by running

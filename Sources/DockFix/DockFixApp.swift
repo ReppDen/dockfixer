@@ -17,9 +17,8 @@ struct DockFixApp: App {
             CommandGroup(replacing: .newItem) {}
         }
 
-        // DockFix lives in the menu bar: it has to be running when a display is
-        // unplugged, and a background utility should not occupy a Dock slot for
-        // that. The window is opened from here when needed.
+        // The menu-bar item is what makes the app usable once the window is
+        // closed — it has to stay running to catch a display being unplugged.
         MenuBarExtra("DockFix", systemImage: "macwindow") {
             MenuContent()
                 .environmentObject(state)
@@ -77,12 +76,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Everything is driven from the window and the menu-bar item instead.
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // With Accessibility already granted there is nothing to say at launch,
-        // so start quietly in the menu bar — which is how the app comes up at
-        // login. Without the grant the window has to be visible, because the
-        // user has to act on it.
-        guard WindowScanner.isTrusted else {
-            // No Dock icon to click, so bring the window forward ourselves.
+        // Started by launchd at login and already granted access: come up quietly
+        // with just the Dock and menu-bar icons, since there is nothing to say and
+        // nothing to do. Any other launch shows the window — the user opened the
+        // app and expects to see it.
+        guard launchedAtLogin, WindowScanner.isTrusted else {
             NSApp.activate(ignoringOtherApps: true)
             return
         }
@@ -92,5 +90,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 window.close()
             }
         }
+    }
+
+    /// Clicking the Dock icon with the window closed has to bring it back —
+    /// otherwise the icon looks dead, since closing the window does not quit.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { showMainWindow() }
+        return true
+    }
+
+    func showMainWindow() {
+        // The Window scene keeps its NSWindow around after a close, so ordering it
+        // back in is enough.
+        if let window = NSApp.windows.first(where: { $0.styleMask.contains(.titled) }) {
+            window.makeKeyAndOrderFront(nil)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// launchd sets `XPC_SERVICE_NAME` for the processes it starts; a launch from
+    /// Finder, Spotlight or `open` leaves it unset or `0`.
+    private var launchedAtLogin: Bool {
+        let name = ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"] ?? ""
+        return !name.isEmpty && name != "0"
     }
 }

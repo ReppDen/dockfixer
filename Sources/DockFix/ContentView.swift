@@ -170,31 +170,30 @@ struct ContentView: View {
                    enabled: state.autoFixEnabled,
                    indented: true)
 
-            option(isOn: $state.launchAtLogin,
-                   title: "Launch at login",
-                   detail: """
-                           DockFix has to be running at the moment a display is \
-                           unplugged. It starts in the menu bar, without a window.
-                           """)
+            // No explanation: this one says all it needs to.
+            option(isOn: $state.launchAtLogin, title: "Launch at login")
         }
     }
 
-    /// A checkbox with the reason for it underneath, in the checkbox's column.
+    /// A checkbox, with the reason for it underneath when the title alone does
+    /// not carry it.
     private func option(isOn: Binding<Bool>,
                         title: String,
-                        detail: String,
+                        detail: String? = nil,
                         enabled: Bool = true,
                         indented: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Toggle(title, isOn: isOn)
                 .toggleStyle(.checkbox)
-            Text(detail)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                // Line the explanation up with the checkbox's label rather than
-                // with the box itself.
-                .padding(.leading, 20)
+            if let detail {
+                Text(detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    // Line the explanation up with the checkbox's label rather
+                    // than with the box itself.
+                    .padding(.leading, 20)
+            }
         }
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.5)

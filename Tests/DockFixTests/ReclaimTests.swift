@@ -81,6 +81,45 @@ func reclaimDetection(_ t: TestRun) {
     t.expect(plugged[2] == nil, "a newly attached display is not reclaimed against")
 }
 
+/// The real case this was written for: attaching a display that becomes the
+/// primary one. The Dock leaves the built-in display, and every rect in
+/// Accessibility space is renumbered at the same time because the origin moved
+/// to the new primary. The built-in display has not changed shape, so its
+/// freed strip must still be recognised.
+func reclaimAcrossAPrimaryChange(_ t: TestRun) {
+    // Built-in alone: it holds the origin, Dock on the left.
+    let before = info(screenFrame, withLeftDock, id: 1)
+    // Second display attached and made primary: the built-in now sits to the
+    // right of and above the origin, and the Dock has gone with the primary.
+    let offset = CGPoint(x: 1920, y: -800)
+    let after = info(screenFrame.offsetBy(dx: offset.x, dy: offset.y),
+                     noDock.offsetBy(dx: offset.x, dy: offset.y),
+                     id: 1)
+
+    guard let space = reclaimedSpace(previous: before, current: after) else {
+        return t.fail("a Dock leaving is still a reclaim when the origin moves with it")
+    }
+    t.expect(space.gainLeft, near: 55, "left gain across a primary change")
+    t.expect(space.gainRight, near: 0, "right gain across a primary change")
+    t.expect(space.gainBottom, near: 0, "bottom gain across a primary change")
+
+    // Windows are renumbered by exactly the same amount, so the geometry lands
+    // where it would have without the primary change.
+    let resting = CGRect(x: 55, y: 200, width: 300, height: 200).offsetBy(dx: offset.x, dy: offset.y)
+    guard let fix = computeFix(window: resting, visible: after.axVisibleFrame, reclaim: space) else {
+        return t.fail("a window resting against the departed Dock should follow it")
+    }
+    t.expect(fix.rect == CGRect(x: 0, y: 200, width: 300, height: 200).offsetBy(dx: offset.x, dy: offset.y),
+             "expected a 55pt slide, got \(fix.rect.logDescription)")
+
+    // A display that moved *and* changed resolution is still not comparable.
+    let rescaled = info(CGRect(x: offset.x, y: offset.y, width: 1440, height: 900),
+                        CGRect(x: offset.x, y: offset.y + 38, width: 1440, height: 862),
+                        id: 1)
+    t.expect(reclaimedSpace(previous: before, current: rescaled) == nil,
+             "a resolution change is not a reclaim, wherever the display sits")
+}
+
 /// Maximised windows stretch into the freed strip; the rest slide into it.
 func reclaimGeometry(_ t: TestRun) {
     guard let left = space(withLeftDock, noDock) else {

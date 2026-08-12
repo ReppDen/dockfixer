@@ -44,8 +44,8 @@ private let edgeEpsilon: CGFloat = 0.5
 ///
 /// Deliberately conservative. It returns `nil` when:
 ///
-/// - the display's full bounds changed — a resolution switch scales everything,
-///   so a difference in visible frames says nothing about the Dock;
+/// - the display's size changed — a resolution switch scales everything, so a
+///   difference in visible frames says nothing about the Dock;
 /// - any edge *lost* room — that is the Dock arriving, which the ordinary
 ///   `computeFix` path already handles;
 /// - only the top edge gained — the top inset is the menu bar, never the Dock,
@@ -53,9 +53,21 @@ private let edgeEpsilon: CGFloat = 0.5
 public func reclaimedSpace(previous: ScreenInfo,
                            current: ScreenInfo,
                            minimumGain: CGFloat = minimumGainDefault) -> ReclaimedSpace? {
-    guard previous.axFrame == current.axFrame else { return nil }
+    guard previous.axFrame.size == current.axFrame.size else { return nil }
 
-    let space = ReclaimedSpace(previousVisible: previous.axVisibleFrame,
+    // The display may read at different coordinates than it did before without
+    // having moved an inch: Accessibility space is anchored to the top-left of
+    // the *primary* display, and attaching a display often makes it the primary
+    // one. Every rect in the space then shifts by the same amount — windows
+    // included — so the old visible frame is brought forward by however far its
+    // own display's bounds moved, and the comparison stays in the space the
+    // windows are read in now. Only the size has to match: a resolution switch
+    // scales everything and says nothing about the Dock.
+    let previousVisible = previous.axVisibleFrame
+        .offsetBy(dx: current.axFrame.minX - previous.axFrame.minX,
+                  dy: current.axFrame.minY - previous.axFrame.minY)
+
+    let space = ReclaimedSpace(previousVisible: previousVisible,
                                visible: current.axVisibleFrame)
     let gainTop = space.previousVisible.minY - space.visible.minY
 

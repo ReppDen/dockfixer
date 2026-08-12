@@ -7,10 +7,41 @@ public struct WindowOutcome: Sendable {
     public let title: String
     public let level: LogLevel
     public let detail: String
-    /// Set for findings that recur identically on every pass — the Finder
-    /// desktop, for instance. Logged once per session so they do not bury the
-    /// entries that change.
+    /// Set for findings that are a standing property of a window rather than
+    /// something that happened — a dialog that cannot be resized, say. Logged
+    /// once per session, because repeating them every pass buries the entries
+    /// that do change.
     public var logOncePerSession = false
+}
+
+/// Why a window was passed over.
+///
+/// These are counted rather than logged one by one. A window being minimised is
+/// not an event, and there is nothing for anyone to do about it; seeing that
+/// two of thirty windows were minimised is enough.
+public enum SkipReason: Sendable, CaseIterable {
+    case minimized
+    case fullScreen
+    /// The desktop and other layers Finder and the system own. They cover a
+    /// display, so they always look like they overlap the Dock, and they can
+    /// never be moved.
+    case systemWindow
+    /// Position or size is not settable — a fixed dialog, or an application
+    /// that refuses to be arranged.
+    case immovable
+    case unreadable
+    case noDisplay
+
+    func label(_ count: Int) -> String {
+        switch self {
+        case .minimized: return "minimized"
+        case .fullScreen: return "full screen"
+        case .systemWindow: return count == 1 ? "system window" : "system windows"
+        case .immovable: return "fixed in place"
+        case .unreadable: return "unreadable"
+        case .noDisplay: return "on no display"
+        }
+    }
 }
 
 /// Result of a whole pass, both for the log and for the counts in the window.
@@ -22,14 +53,34 @@ public struct ScanSummary: Sendable {
     public var candidates = 0
     public var moved = 0
     public var failed = 0
-    public var skipped = 0
+    public var skips: [SkipReason: Int] = [:]
 
-    /// One-line tally for the log.
+    public var skipped: Int { skips.values.reduce(0, +) }
+
+    /// One-line tally for the log and for the footer of the window.
+    ///
+    /// Reads as an account of the pass: what was done first, then what needed
+    /// nothing, then what could not be touched and why.
     public var headline: String {
-        "\(windowsSeen) windows in \(appsScanned) apps, \(candidates) need fixing"
-            + (moved > 0 ? ", \(moved) moved" : "")
-            + (failed > 0 ? ", \(failed) failed" : "")
-            + (skipped > 0 ? ", \(skipped) skipped" : "")
+        var parts: [String] = []
+        if moved > 0 { parts.append("\(moved) moved") }
+        if failed > 0 { parts.append("\(failed) could not be moved") }
+        // On a dry run nothing is moved, so the candidates are still pending.
+        let pending = candidates - moved - failed
+        if pending > 0 { parts.append("\(pending) to fix") }
+
+        let settled = windowsSeen - skipped - candidates
+        if settled > 0 { parts.append("\(settled) already in place") }
+
+        for reason in SkipReason.allCases {
+            let count = skips[reason] ?? 0
+            if count > 0 { parts.append("\(count) \(reason.label(count))") }
+        }
+
+        let body = parts.isEmpty ? "nothing to do" : parts.joined(separator: ", ")
+        let windows = windowsSeen == 1 ? "1 window" : "\(windowsSeen) windows"
+        let apps = appsScanned == 1 ? "1 app" : "\(appsScanned) apps"
+        return "\(windows) in \(apps) — \(body)"
     }
 }
 
@@ -63,13 +114,24 @@ public final class WindowScanner: Sendable {
     /// - Parameter dryRun: when true, nothing is written — this backs the
     ///   "Check Windows" button, which must list exactly what "Move Windows"
     ///   would touch without touching it.
+    /// - Parameter previousScreens: the layout before the display change that
+    ///   triggered this pass, if there was one. The difference against the
+    ///   snapshot taken here is the space the Dock vacated. The comparison is
+    ///   deliberately made against a *fresh* snapshot rather than one the
+    ///   watcher took earlier, so a layout that moved again in between cannot
+    ///   produce a correction against a stale visible frame.
     @MainActor
-    public func run(dryRun: Bool, completion: @escaping (ScanSummary) -> Void) {
+    public func run(dryRun: Bool,
+                    previousScreens: [ScreenInfo]? = nil,
+                    completion: @escaping (ScanSummary) -> Void) {
         let screens = ScreenMap.current()
         let apps = Self.regularApps()
         queue.async { [weak self] in
             guard let self else { return }
-            let summary = self.scan(apps: apps, screens: screens, dryRun: dryRun)
+            let summary = self.scan(apps: apps,
+                                    screens: screens,
+                                    previousScreens: previousScreens,
+                                    dryRun: dryRun)
             DispatchQueue.main.async { completion(summary) }
         }
     }
@@ -84,7 +146,10 @@ public final class WindowScanner: Sendable {
 
     // MARK: - Scanning
 
-    private func scan(apps: [AppRef], screens: [ScreenInfo], dryRun: Bool) -> ScanSummary {
+    private func scan(apps: [AppRef],
+                      screens: [ScreenInfo],
+                      previousScreens: [ScreenInfo]?,
+                      dryRun: Bool) -> ScanSummary {
         var summary = ScanSummary()
         guard AX.isTrusted else {
             summary.outcomes.append(WindowOutcome(
@@ -92,6 +157,14 @@ public final class WindowScanner: Sendable {
                 level: .fail,
                 detail: "Accessibility access not granted — cannot see or move windows"))
             return summary
+        }
+
+        let reclaim = previousScreens.map { reclaims(previous: $0, current: screens) } ?? [:]
+        for screen in screens {
+            guard let space = reclaim[screen.displayID] else { continue }
+            summary.outcomes.append(WindowOutcome(
+                app: "DockFix", title: "", level: .info,
+                detail: "\(screen.localizedName) regained \(space.edgeDescription)"))
         }
 
         for app in apps {
@@ -106,7 +179,8 @@ public final class WindowScanner: Sendable {
 
             for window in windows {
                 summary.windowsSeen += 1
-                process(window: window, app: app, screens: screens, dryRun: dryRun, into: &summary)
+                process(window: window, app: app, screens: screens,
+                        reclaim: reclaim, dryRun: dryRun, into: &summary)
             }
         }
         return summary
@@ -115,60 +189,75 @@ public final class WindowScanner: Sendable {
     private func process(window: AXUIElement,
                          app: AppRef,
                          screens: [ScreenInfo],
+                         reclaim: [CGDirectDisplayID: ReclaimedSpace],
                          dryRun: Bool,
                          into summary: inout ScanSummary) {
         let title = AX.string(window, kAXTitleAttribute as String) ?? ""
-        let subrole = AX.string(window, kAXSubroleAttribute as String) ?? "no subrole"
+        let subrole = AX.string(window, kAXSubroleAttribute as String)
 
-        func skip(_ reason: String, logOncePerSession: Bool = false) {
-            summary.skipped += 1
-            summary.outcomes.append(WindowOutcome(app: app.name, title: title, level: .skip,
-                                                  detail: "\(reason) [\(subrole)]",
-                                                  logOncePerSession: logOncePerSession))
+        /// Counted, not logged. Nothing here is an event, and none of it is
+        /// actionable — the log is for what a pass did.
+        func skip(_ reason: SkipReason) {
+            summary.skips[reason, default: 0] += 1
+        }
+
+        /// Counted *and* logged once per session: a window that is in the way
+        /// and refuses to move is worth naming, but only the first time.
+        func report(_ reason: SkipReason, _ detail: String) {
+            skip(reason)
+            summary.outcomes.append(WindowOutcome(
+                app: app.name, title: title, level: .skip,
+                detail: "\(detail) [\(subrole ?? "no subrole")]",
+                logOncePerSession: true))
         }
 
         if AX.bool(window, kAXMinimizedAttribute as String) == true {
-            return skip("minimized")
+            return skip(.minimized)
         }
         if AX.bool(window, AX.fullScreenAttribute) == true {
-            return skip("fullscreen")
+            return skip(.fullScreen)
         }
         guard let frame = AX.frame(window) else {
-            return skip("position or size unreadable")
+            return skip(.unreadable)
         }
         guard frame.width > 1, frame.height > 1 else {
-            return skip("zero-size window \(frame.logDescription)")
+            return skip(.unreadable)
         }
+
+        // The desktop and the system's own layers: no subrole, and read-only.
+        // They cover a whole display, so they overlap the Dock by definition and
+        // would otherwise be reported as an immovable candidate on every pass.
+        // Identified by what they are rather than by their size, because the
+        // desktop does not always match the display frame exactly.
+        if subrole == nil, !AX.isSettable(window, kAXPositionAttribute as String) {
+            return skip(.systemWindow)
+        }
+
         guard let screen = ScreenMap.screen(for: frame, in: screens) else {
-            return skip("no display to place it on")
+            return skip(.noDisplay)
         }
 
-        // The Finder desktop is exposed as a read-only window covering a whole
-        // display. It overlaps the Dock by definition and can never be moved, so
-        // without this it would be reported on every single pass.
-        if frame == screen.axFrame,
-           title.isEmpty,
-           !AX.isSettable(window, kAXPositionAttribute as String) {
-            return skip("read-only window covering the whole display — desktop or system layer",
-                        logOncePerSession: true)
+        guard let fix = computeFix(window: frame,
+                                   visible: screen.axVisibleFrame,
+                                   reclaim: reclaim[screen.displayID]) else {
+            // Already inside the usable area, with nothing to reclaim.
+            // Not logged: this is most windows.
+            return
         }
-
-        guard let fix = computeFix(window: frame, visible: screen.axVisibleFrame) else {
-            return  // Already inside the usable area. Not logged: this is most windows.
-        }
-
-        summary.candidates += 1
 
         // A window can be in the way and still be immovable — a fixed-size
-        // dialog, for instance. Report it rather than silently failing later.
+        // dialog, for instance. Counted as a skip rather than a candidate: it
+        // is not something this pass, or any pass, is going to fix.
         let needsMove = fix.rect.origin != frame.origin
         let needsResize = fix.rect.size != frame.size
         if needsMove, !AX.isSettable(window, kAXPositionAttribute as String) {
-            return skip("would move to \(fix.rect.logDescription) but position is not settable")
+            return report(.immovable, "in the way but its position is fixed — would move to \(fix.rect.logDescription)")
         }
         if needsResize, !AX.isSettable(window, kAXSizeAttribute as String) {
-            return skip("would resize to \(fix.rect.logDescription) but size is not settable")
+            return report(.immovable, "in the way but its size is fixed — would resize to \(fix.rect.logDescription)")
         }
+
+        summary.candidates += 1
 
         let transition = "\(frame.logDescription) -> \(fix.rect.logDescription) \(fix.logDetail)"
 

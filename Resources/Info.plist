@@ -28,9 +28,12 @@
 	<true/>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
-	<!-- Deliberately not LSUIElement: DockFix keeps a Dock icon and an entry in
-	     the app switcher, alongside its menu-bar item. Closing the window leaves
-	     it running in the menu bar rather than quitting. -->
+	<!-- Deliberately not LSUIElement: with its window open DockFix is a normal
+	     application, with a Dock icon and an entry in the app switcher. Closing
+	     the window does not quit it — the watcher has to keep running — so it
+	     drops to .accessory at that point and lives in the menu bar alone, since
+	     a switcher entry that switches to nothing is worse than no entry. See
+	     AppDelegate.retreatToMenuBar. -->
 	<key>LSUIElement</key>
 	<false/>
 </dict>

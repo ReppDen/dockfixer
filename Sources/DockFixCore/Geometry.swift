@@ -54,6 +54,17 @@ private func fixAxis(position: CGFloat, length: CGFloat, low: CGFloat, high: CGF
     return AxisFix(position: min(max(position, low), high - length), length: length, clamped: false)
 }
 
+/// Pulls a whole rect back inside `visible`, one axis at a time.
+private func clamp(_ rect: CGRect, into visible: CGRect) -> (rect: CGRect, clamped: Bool) {
+    let h = fixAxis(position: rect.minX, length: rect.width,
+                    low: visible.minX, high: visible.maxX)
+    let v = fixAxis(position: rect.minY, length: rect.height,
+                    low: visible.minY, high: visible.maxY)
+
+    return (CGRect(x: h.position, y: v.position, width: h.length, height: v.length),
+            h.clamped || v.clamped)
+}
+
 /// Computes the correction for `window` against the usable area `visible`.
 ///
 /// Returns `nil` when the window is already fully inside the usable area,
@@ -64,16 +75,27 @@ private func fixAxis(position: CGFloat, length: CGFloat, low: CGFloat, high: CGF
 /// screen when the Dock is set to auto-hide. That is why no Dock orientation or
 /// tile size is consulted anywhere in this file.
 public func computeFix(window: CGRect, visible: CGRect, tolerance: CGFloat = 0.5) -> WindowFix? {
+    computeFix(window: window, visible: visible, reclaim: nil, tolerance: tolerance)
+}
+
+/// The same correction, plus the space the display regained because the Dock
+/// left it.
+///
+/// The reclaim moves the window outwards first — stretching it if it was
+/// maximised, sliding it otherwise — and the result is then clamped into
+/// `visible` exactly as an untouched window would be. The reported `shift` and
+/// `shrink` are measured against the original `window`, so the log describes
+/// where the window actually ended up rather than the intermediate step.
+public func computeFix(window: CGRect,
+                       visible: CGRect,
+                       reclaim: ReclaimedSpace?,
+                       tolerance: CGFloat = 0.5) -> WindowFix? {
     guard window.width > 0, window.height > 0,
           visible.width > 0, visible.height > 0
     else { return nil }
 
-    let h = fixAxis(position: window.minX, length: window.width,
-                    low: visible.minX, high: visible.maxX)
-    let v = fixAxis(position: window.minY, length: window.height,
-                    low: visible.minY, high: visible.maxY)
-
-    let fixed = CGRect(x: h.position, y: v.position, width: h.length, height: v.length)
+    let desired = reclaim.map { reclaimedRect(for: window, in: $0) } ?? window
+    let (fixed, clamped) = clamp(desired, into: visible)
 
     let moved = abs(fixed.minX - window.minX) > tolerance || abs(fixed.minY - window.minY) > tolerance
     let resized = abs(fixed.width - window.width) > tolerance || abs(fixed.height - window.height) > tolerance
@@ -83,7 +105,7 @@ public func computeFix(window: CGRect, visible: CGRect, tolerance: CGFloat = 0.5
         rect: fixed,
         shift: CGVector(dx: fixed.minX - window.minX, dy: fixed.minY - window.minY),
         shrink: CGSize(width: window.width - fixed.width, height: window.height - fixed.height),
-        clamped: h.clamped || v.clamped
+        clamped: clamped
     )
 }
 
@@ -99,15 +121,21 @@ public extension CGRect {
 
 public extension WindowFix {
     /// `shift=+55 shrink=55` — only the non-zero parts, for a readable log.
+    /// A negative shrink is a window that grew into reclaimed space, and reads
+    /// better as `growW=` than as `shrinkW=-55`.
     var logDetail: String {
         var parts: [String] = []
         func n(_ v: CGFloat) -> String {
             v == v.rounded() ? String(Int(v)) : String(format: "%.1f", v)
         }
+        func size(_ label: String, _ v: CGFloat) {
+            guard v != 0 else { return }
+            parts.append(v > 0 ? "shrink\(label)=\(n(v))" : "grow\(label)=\(n(-v))")
+        }
         if shift.dx != 0 { parts.append("shiftX=\(n(shift.dx))") }
         if shift.dy != 0 { parts.append("shiftY=\(n(shift.dy))") }
-        if shrink.width != 0 { parts.append("shrinkW=\(n(shrink.width))") }
-        if shrink.height != 0 { parts.append("shrinkH=\(n(shrink.height))") }
+        size("W", shrink.width)
+        size("H", shrink.height)
         if clamped { parts.append("clamped") }
         return parts.joined(separator: " ")
     }

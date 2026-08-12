@@ -17,6 +17,18 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Whether to also follow the Dock when it leaves a display — stretching
+    /// windows into the strip it vacated instead of only pushing them out of
+    /// its way. Separate from `autoFixEnabled` because it moves windows that
+    /// nothing is currently overlapping, which is a bigger liberty to take.
+    @Published var reclaimEnabled: Bool {
+        didSet {
+            guard oldValue != reclaimEnabled else { return }
+            UserDefaults.standard.set(reclaimEnabled, forKey: Self.reclaimKey)
+            log.info("follow the Dock off a display: \(reclaimEnabled ? "enabled" : "disabled")")
+        }
+    }
+
     /// Mirrors `SMAppService`; kept in sync rather than trusted blindly, because
     /// macOS can hold the registration back pending approval.
     @Published var launchAtLogin: Bool {
@@ -35,7 +47,12 @@ final class AppState: ObservableObject {
 
     let log: Log
 
+    /// The live instance, for the app delegate: it runs before this is built and
+    /// has no way to be handed a reference, but it has decisions worth logging.
+    private(set) static weak var current: AppState?
+
     private static let autoFixKey = "autoFixOnDisplayChange"
+    private static let reclaimKey = "followDockOffDisplay"
     private let scanner = WindowScanner()
     private var watcher: DisplayWatcher?
     private var pollTimer: Timer?
@@ -45,23 +62,40 @@ final class AppState: ObservableObject {
     /// dropped just because a pass happened to be in flight.
     private var queuedRun: (dryRun: Bool, trigger: String)?
 
+    /// The display layout as it was before the last change: what tells the
+    /// scanner how much room the Dock gave back. Kept only until a pass has
+    /// used it, because it describes one event — the correction itself is
+    /// idempotent, but a snapshot from ten minutes ago says nothing about
+    /// windows the user has moved since.
+    private var pendingReclaim: [ScreenInfo]?
+
     /// Findings that repeat identically on every pass, already logged once.
     private var noticesLogged = Set<String>()
 
     init() {
         log = Log()
-        UserDefaults.standard.register(defaults: [Self.autoFixKey: true])
+        UserDefaults.standard.register(defaults: [Self.autoFixKey: true, Self.reclaimKey: true])
         autoFixEnabled = UserDefaults.standard.bool(forKey: Self.autoFixKey)
+        reclaimEnabled = UserDefaults.standard.bool(forKey: Self.reclaimKey)
         launchAtLogin = LoginItem.isEnabled
         isTrusted = WindowScanner.isTrusted
 
-        watcher = DisplayWatcher(log: log) { [weak self] reason in
-            self?.run(dryRun: false, trigger: reason)
+        watcher = DisplayWatcher(log: log) { [weak self] reason, previousScreens in
+            guard let self else { return }
+            // Two changes in a row before a pass gets to run: the older
+            // snapshot is the truer "before", so it is the one kept.
+            if pendingReclaim == nil {
+                pendingReclaim = previousScreens
+            }
+            run(dryRun: false, trigger: reason)
         }
+
+        Self.current = self
 
         refreshDisplays()
         log.info("DockFix ready — \(displaysSummary)")
         log.info("launch at login: \(LoginItem.statusDescription)")
+        log.info("follow the Dock off a display: \(reclaimEnabled ? "enabled" : "disabled")")
 
         if !isTrusted {
             log.info("Accessibility access not granted yet; approve DockFix in the system prompt, or press Grant")
@@ -140,12 +174,23 @@ final class AppState: ObservableObject {
 
         isBusy = true
         let label = dryRun ? "check" : "move"
-        log.info("\(label) triggered by \(trigger)")
 
-        scanner.run(dryRun: dryRun) { [weak self] summary in
+        // A check only reports, so it previews the pending reclaim without
+        // spending it; a move consumes it either way, switched off included —
+        // a snapshot kept across a change nobody acted on would be stale.
+        let previousScreens = reclaimEnabled ? pendingReclaim : nil
+        if !dryRun {
+            pendingReclaim = nil
+        }
+
+        scanner.run(dryRun: dryRun, previousScreens: previousScreens) { [weak self] summary in
             guard let self else { return }
             record(summary)
-            log.info("\(label) done — \(summary.headline)")
+            // One line per pass, at the end, when there is something to report.
+            // The trigger is not repeated: a display change was already logged
+            // by the watcher, and a button press was made by the person reading
+            // this.
+            log.info("\(label) — \(summary.headline)")
             lastSummary = summary
             isBusy = false
 

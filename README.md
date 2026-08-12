@@ -44,6 +44,51 @@ For every window that overlaps the Dock or the menu bar:
 - **Sizes it down if it never fitted** — a window larger than the usable area is
   fitted to it.
 
+### The other half: the strip the Dock leaves behind
+
+Plug a display back in and the Dock jumps to it. The screen it left is now
+wider, but the windows on it are not — they leave a dead strip of wallpaper
+exactly the Dock's width.
+
+```
+ before                              after
+┌──────────────────────────┐        ┌──────────────────────────┐
+│▓▓┌──────────────────────┐│        │┌────────────────────────┐│
+│▓▓│                      ││   ──▶  ││                        ││
+│▓▓│  was maximised, now  ││        ││  stretched into the    ││
+│▓▓│  a strip is wasted   ││        ││  reclaimed strip       ││
+│▓▓└──────────────────────┘│        │└────────────────────────┘│
+└──────────────────────────┘        └──────────────────────────┘
+  ▓ = where the Dock used to be
+```
+
+On a display whose usable area grew, a window that was *touching the edge the
+Dock has vacated* was being held there by the Dock, and follows it:
+
+- **Touching both edges** — it was maximised. Stretched to the new extent, so
+  the strip disappears and its far edge does not move.
+- **Touching only the freed edge** — it was resting against the Dock. Slid
+  across to rest against the new edge, keeping its size.
+- **Touching neither** — it is where you put it, and it stays there.
+
+Whether a window "filled" the screen is judged along the Dock's axis only — a
+half-height window spanning the full width still counts.
+
+Because the rule is about what a window is touching rather than about which
+display change happened, it settles: once moved, the window touches the new edge
+and is a whole Dock's width from the old one, so running the pass again does
+nothing.
+
+This has its own checkbox — **Follow the Dock when it leaves a display** — kept
+separate because it moves windows that nothing is currently overlapping, which
+is a bigger liberty than pulling a window out from under the Dock. Switch it off
+and DockFix only does the first half.
+
+It also needs to know where the Dock *was*, which only the display watcher
+records. With **Fix windows automatically** switched off there is no such record,
+so the checkbox is greyed out and the buttons can only push windows out from
+under the Dock.
+
 Windows it cannot move are written to the log with the reason. No silent
 failures.
 
@@ -108,17 +153,26 @@ System Settings → Privacy & Security → Accessibility.
 
 ## Usage
 
-DockFix has a Dock icon, an app-switcher entry and a menu-bar item. It has to be
-running when a display is unplugged, so switch on **Launch at login** and forget
-about it — automatic correction is enabled by default.
+DockFix has to be running when a display is unplugged, so switch on **Launch at
+login** and forget about it — automatic correction is enabled by default.
 
-Closing the window does not quit: DockFix stays in the menu bar, and clicking its
-Dock icon brings the window back. Quitting is explicit, from the button or ⌘Q.
+With its window open it is a normal application: Dock icon, app-switcher entry,
+menu bar. Closing the window does not quit — the watcher has to keep running —
+so it steps out of the way instead: the Dock icon and the ⌘⇥ entry disappear and
+only the menu-bar item is left. **Open DockFix…** in that menu brings the window,
+and the Dock icon, back. Quitting is explicit, from the button or ⌘Q.
+
+Started at login it goes straight to the menu bar without showing the window,
+since there is nothing to say. It may flash past on the way — macOS gives no way
+to ask why a process was started, so DockFix shows the window and withdraws it a
+moment later if nobody came for it. Opening it yourself always keeps it.
 
 | Control | What it does |
 | --- | --- |
+| **Open DockFix…** *(menu bar)* | Brings the window back after it has been closed. |
 | **Fix Windows Now** *(menu bar)* | Moves every window that overlaps the Dock or the menu bar. |
 | **Fix automatically when displays change** | Runs a pass whenever a display is connected or disconnected, or the Dock moves. On by default. |
+| **Follow the Dock when it leaves a display** | Stretches and slides windows into the strip the Dock vacates when it moves to another display. On by default; needs the option above. |
 | **Launch at login** | Registers DockFix as a login item. macOS may ask you to allow it under System Settings → General → Login Items. |
 | **Check Windows** *(window)* | Lists what a move would touch, with current and proposed geometry. Changes nothing. |
 | **Move Windows** *(window)* | Applies those corrections. |
@@ -143,19 +197,25 @@ Shown live in the window, and written to:
 
 ```
 [20:18:52.575] INFO   displays changed: 2 -> 1, settled after 1 polls
-[20:18:52.575] INFO   move triggered by displays changed: 2 -> 1, settled after 1 polls
 [20:18:53.357] MOVED  Google Chrome   "docs"  (0,33 1512x949) -> (49,33 1463x949) shiftX=49 shrinkW=49 clamped
 [20:18:53.357] MOVED  WhatsApp        "WhatsApp"  (48,33 1201x949) -> (49,33 1201x949) shiftX=1
-[20:18:53.357] SKIP   Finder          read-only window covering the whole display — desktop or system layer
 [20:18:53.357] FAIL   IntelliJ IDEA   "proj"  want (49,33 1463x949) got (0,33 1512x949) after 3 tries
-[20:18:53.357] INFO   move done — 27 windows in 23 apps, 9 need fixing, 9 moved, 1 skipped
+[20:18:53.357] INFO   move — 27 windows in 23 apps — 2 moved, 1 could not be moved, 22 already in place, 2 minimized
 ```
+
+The log records what a pass *did*, not everything it saw. A minimised window, a
+window already in the right place, the desktop layer — none of that is an event
+and none of it is anything to act on, so it is counted in the closing line and
+not printed window by window. What does get a line of its own is a window that
+moved, a window that would not move, and a window that is in the way but cannot
+be arranged at all — the last of those once per session, since it is a standing
+property rather than something that happened.
 
 | Level | Meaning |
 | --- | --- |
 | `INFO` | Passes, display changes, permission changes. |
 | `MOVED` | Window corrected, with before, after, and by how much. |
-| `SKIP` | Window deliberately left alone, with the reason. |
+| `SKIP` | Window in the way that cannot be moved or resized at all. Once per session. |
 | `FAIL` | Correction was attempted and did not stick, with what was asked for and what happened. |
 
 ## Troubleshooting

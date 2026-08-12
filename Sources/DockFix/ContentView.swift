@@ -47,6 +47,14 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle("Fix windows automatically when displays change", isOn: $state.autoFixEnabled)
                 .toggleStyle(.checkbox)
+                .help("Move windows that ended up underneath the Dock out into the usable area")
+            Toggle("Follow the Dock when it leaves a display", isOn: $state.reclaimEnabled)
+                .toggleStyle(.checkbox)
+                .padding(.leading, 18)
+                // Knowing where the Dock used to be needs the display watcher,
+                // so this can only do anything while the option above is on.
+                .disabled(!state.autoFixEnabled)
+                .help("When the Dock moves to another display, stretch windows that were maximised into the strip it leaves behind, and slide across the ones that were resting against it")
             Toggle("Launch at login", isOn: $state.launchAtLogin)
                 .toggleStyle(.checkbox)
                 .help("DockFix has to be running when a display is unplugged for the automatic pass to happen")

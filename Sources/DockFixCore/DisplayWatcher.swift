@@ -12,7 +12,10 @@ import AppKit
 @MainActor
 public final class DisplayWatcher {
 
-    public typealias Handler = (String) -> Void
+    /// The note for the log, and the layout as it was *before* the change.
+    /// The previous visible frames are the only record of where the Dock used
+    /// to be, which is what tells `reclaims` how much space a display regained.
+    public typealias Handler = (String, [ScreenInfo]) -> Void
 
     private let debounceNanos: UInt64 = 600_000_000
     private let pollNanos: UInt64 = 300_000_000
@@ -25,27 +28,22 @@ public final class DisplayWatcher {
 
     private var observer: NSObjectProtocol?
     private var pending: Task<Void, Never>?
-    private var lastFingerprint: String
-    private var lastScreenCount: Int
+    private var lastScreens: [ScreenInfo]
 
     public private(set) var isRunning = false
 
     public init(log: Log, handler: @escaping Handler) {
         self.log = log
         self.handler = handler
-        let screens = ScreenMap.current()
-        lastFingerprint = ScreenMap.fingerprint(screens)
-        lastScreenCount = screens.count
+        lastScreens = ScreenMap.current()
     }
 
     public func start() {
         guard !isRunning else { return }
         isRunning = true
 
-        // The fingerprint may have gone stale while the watcher was off.
-        let screens = ScreenMap.current()
-        lastFingerprint = ScreenMap.fingerprint(screens)
-        lastScreenCount = screens.count
+        // The snapshot may have gone stale while the watcher was off.
+        lastScreens = ScreenMap.current()
 
         observer = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -81,8 +79,8 @@ public final class DisplayWatcher {
     }
 
     private func waitForStableLayout() async {
-        let previousCount = lastScreenCount
-        let previousFingerprint = lastFingerprint
+        let previousScreens = lastScreens
+        let previousFingerprint = ScreenMap.fingerprint(previousScreens)
 
         try? await Task.sleep(nanoseconds: debounceNanos)
         if Task.isCancelled { return }
@@ -106,8 +104,7 @@ public final class DisplayWatcher {
         }
 
         let screens = ScreenMap.current()
-        lastFingerprint = fingerprint
-        lastScreenCount = screens.count
+        lastScreens = screens
 
         guard fingerprint != previousFingerprint else {
             // Woken by something that left the layout identical.
@@ -115,10 +112,10 @@ public final class DisplayWatcher {
         }
 
         let settled = stableReadings >= requiredStableReadings
-        var note = "displays changed: \(previousCount) -> \(screens.count)"
+        var note = "displays changed: \(previousScreens.count) -> \(screens.count)"
         note += settled ? ", settled after \(polls) polls" : ", still changing after \(polls) polls — going ahead anyway"
         log.info(note)
 
-        handler(note)
+        handler(note, previousScreens)
     }
 }

@@ -16,6 +16,14 @@ struct DockFixApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}
         }
+        // The window is exactly its contents, and changes size when they do.
+        //
+        // Sizing it by hand does not work here: `setContentSize` is overridden by
+        // whatever the scene decides a moment later, and the hosting view centres
+        // the overflow, so the window silently clips its top and bottom at once
+        // rather than showing something obviously wrong. `.contentSize` hands the
+        // question to the one part of the system that has the final say anyway.
+        .windowResizability(.contentSize)
 
         // The menu-bar item is what makes the app usable once the window is
         // closed — it has to stay running to catch a display being unplugged.
@@ -67,10 +75,12 @@ private struct MenuContent: View {
 
         Divider()
 
-        Toggle("Fix automatically when displays change", isOn: $state.autoFixEnabled)
-        Toggle("Follow the Dock when it leaves a display", isOn: $state.reclaimEnabled)
+        // Worded exactly as in the window: two names for one switch is two
+        // things to learn.
+        Toggle("Move Windows Out From Under the Dock", isOn: $state.autoFixEnabled)
+        Toggle("Reclaim the Space the Dock Leaves Behind", isOn: $state.reclaimEnabled)
             .disabled(!state.autoFixEnabled)
-        Toggle("Launch at login", isOn: $state.launchAtLogin)
+        Toggle("Launch at Login", isOn: $state.launchAtLogin)
 
         Divider()
 

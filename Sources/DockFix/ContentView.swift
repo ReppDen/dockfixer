@@ -5,8 +5,8 @@ import SwiftUI
 ///
 /// AppKit's default push button is sized to its text, so a row of them reads as
 /// a ragged line of small boxes. These stretch to share the row evenly, which
-/// gives the window a spine and makes the primary actions look like the point
-/// of it rather than an afterthought.
+/// gives the window a spine and makes the primary action look like the point of
+/// it rather than an afterthought.
 struct SoftButtonStyle: ButtonStyle {
     /// A little more fill, for the action the window exists to perform.
     var emphasised = false
@@ -49,36 +49,20 @@ struct SoftButtonStyle: ButtonStyle {
     }
 }
 
-/// The round one, for a single glyph.
-struct RoundButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 12, weight: .medium))
-            .frame(width: 26, height: 26)
-            .background(
-                Circle().fill(Color.primary.opacity(configuration.isPressed ? 0.22 : 0.09))
-            )
-            .foregroundStyle(.secondary)
-            .contentShape(Circle())
-    }
-}
-
 struct ContentView: View {
     @EnvironmentObject private var state: AppState
     @ObservedObject var log: Log
 
-    @State private var showingHelp = false
-
     /// Wide enough for a wall of log lines; narrow enough to be just the
     /// controls when they are all there is.
-    private static let wideWidth: CGFloat = 820
-    private static let narrowWidth: CGFloat = 470
+    private static let wideWidth: CGFloat = 860
+    private static let narrowWidth: CGFloat = 560
+    private static let padding: CGFloat = 18
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            header
-            Divider()
-            settings
+        VStack(alignment: .leading, spacing: 18) {
+            section("Screens") { screens }
+            section("Behaviour") { behaviour }
             actions
             if state.showLogs {
                 logPane
@@ -86,169 +70,178 @@ struct ContentView: View {
             }
             footer
         }
-        .padding(16)
-        .frame(minWidth: state.showLogs ? Self.wideWidth : Self.narrowWidth,
-               minHeight: state.showLogs ? 480 : 0)
-        .onAppear {
-            // A window restored at the size it had when the log was on show
-            // would open mostly empty. Only the collapsed case is forced: with
-            // the log up, whatever size it was left at is the right one.
-            guard !state.showLogs else { return }
-            DispatchQueue.main.async { resizeWindow(showingLogs: false) }
-        }
-        .onChange(of: state.showLogs) { _, shown in
-            // The frame above only sets a lower bound; the window keeps whatever
-            // size it already had. Resizing it is what makes showing the log feel
-            // like opening a drawer rather than revealing a cramped one.
-            DispatchQueue.main.async { resizeWindow(showingLogs: shown) }
+        .padding(Self.padding)
+        .frame(width: state.showLogs ? Self.wideWidth : Self.narrowWidth)
+    }
+
+    // MARK: - Section chrome
+
+    private func section<Content: View>(_ title: String,
+                                        @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+                .kerning(0.6)
+            content()
         }
     }
 
-    /// Grows the window for the log, and shrinks it back to fit the controls.
+    // MARK: - Screens
+
+    /// One row per display: what it is, and what the Dock is doing on it.
     ///
-    /// The collapsed height is measured rather than guessed: `fittingSize` is
-    /// what the laid-out content actually needs, so the window hugs it however
-    /// the controls change.
-    private func resizeWindow(showingLogs shown: Bool) {
-        guard let window = NSApp.windows.first(where: { $0.styleMask.contains(.titled) })
-        else { return }
-
-        if shown {
-            window.setContentSize(NSSize(width: Self.wideWidth, height: 560))
-        } else {
-            let height = window.contentView.map { max($0.fittingSize.height, 200) } ?? 260
-            window.setContentSize(NSSize(width: Self.narrowWidth, height: height))
-        }
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(state.isTrusted ? Color.green : Color.orange)
-                    .frame(width: 9, height: 9)
-                Text(state.isTrusted
-                     ? "Accessibility access granted"
-                     : "Accessibility access required to move windows")
-                    .font(.system(size: 13, weight: .medium))
-                Spacer()
-                if !state.isTrusted {
-                    Button("Grant…") { state.requestAccessibility() }
-                        .buttonStyle(SoftButtonStyle(emphasised: true))
-                        .fixedSize()
+    /// The Dock's whereabouts are the whole reason this app exists, so they are
+    /// shown rather than described — it is also the fastest way to tell whether
+    /// DockFix is seeing the same layout you are.
+    private var screens: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(state.screens, id: \.displayID) { screen in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(screen.localizedName)
+                                .font(.system(size: 13, weight: .medium))
+                            if screen.isPrimary, state.screens.count > 1 {
+                                Text("PRIMARY")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .kerning(0.4)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background(
+                                        Capsule().fill(Color.primary.opacity(0.1))
+                                    )
+                            }
+                        }
+                        Text(describe(screen))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
                 }
             }
-            Text(state.displaysSummary)
+        }
+    }
+
+    /// `1920 × 1080  ·  Dock on the left, 48 pt wide`
+    private func describe(_ screen: ScreenInfo) -> String {
+        let size = "\(Int(screen.axFrame.width)) × \(Int(screen.axFrame.height))"
+        let insets = screen.insets
+        let edges = [("left", insets.left, "wide"),
+                     ("right", insets.right, "wide"),
+                     ("bottom", insets.bottom, "tall")]
+
+        guard let dock = edges.max(by: { $0.1 < $1.1 }), dock.1 > 1 else {
+            return size + "  ·  No Dock on this display"
+        }
+        return size + "  ·  Dock on the \(dock.0), \(Int(dock.1.rounded())) pt \(dock.2)"
+    }
+
+    // MARK: - Behaviour
+
+    private var behaviour: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            accessibilityRow
+
+            option(isOn: $state.autoFixEnabled,
+                   title: "Move windows out from under the Dock",
+                   detail: """
+                           Connecting or disconnecting a display makes macOS shuffle \
+                           windows around, and some of them land underneath the Dock \
+                           with their edges out of reach. This slides them back into \
+                           the usable area as soon as that happens.
+                           """)
+
+            option(isOn: $state.reclaimEnabled,
+                   // No mention of an edge anywhere in here: the Dock can sit on
+                   // any side, and the wording has to hold for all of them.
+                   title: "Reclaim the space the Dock leaves behind",
+                   detail: """
+                           When the Dock moves to another display, the one it was on \
+                           keeps an empty band the size of the Dock. Windows that filled \
+                           the screen stretch into it; windows that were resting against \
+                           the Dock move over to take it.
+                           """,
+                   // Knowing where the Dock used to be needs the display
+                   // watcher, so this can only do anything while the option
+                   // above is on.
+                   enabled: state.autoFixEnabled,
+                   indented: true)
+
+            option(isOn: $state.launchAtLogin,
+                   title: "Launch at login",
+                   detail: """
+                           DockFix has to be running at the moment a display is \
+                           unplugged. It starts in the menu bar, without a window.
+                           """)
+        }
+    }
+
+    /// A checkbox with the reason for it underneath, in the checkbox's column.
+    private func option(isOn: Binding<Bool>,
+                        title: String,
+                        detail: String,
+                        enabled: Bool = true,
+                        indented: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Toggle(title, isOn: isOn)
+                .toggleStyle(.checkbox)
+            Text(detail)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                // Line the explanation up with the checkbox's label rather than
+                // with the box itself.
+                .padding(.leading, 20)
         }
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.5)
+        .padding(.leading, indented ? 20 : 0)
     }
 
-    // MARK: - Settings
-
-    /// Label on the left, control on the right, the way a settings pane reads.
-    /// The grid keeps the labels in one column whatever their length.
-    private var settings: some View {
-        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 9) {
-            GridRow {
-                rowLabel("Displays")
-                Toggle("Fix windows when displays change", isOn: $state.autoFixEnabled)
-                    .toggleStyle(.checkbox)
-                    .help("Move windows that ended up underneath the Dock out into the usable area")
-            }
-            GridRow {
-                Color.clear.frame(width: 1, height: 1)
-                Toggle("Follow the Dock when it leaves a display", isOn: $state.reclaimEnabled)
-                    .toggleStyle(.checkbox)
-                    // Knowing where the Dock used to be needs the display
-                    // watcher, so this can only do anything while the option
-                    // above is on.
-                    .disabled(!state.autoFixEnabled)
-                    .help("When the Dock moves to another display, stretch windows that were maximised into the strip it leaves behind, and slide across the ones that were resting against it")
-            }
-            GridRow {
-                rowLabel("Startup")
-                Toggle("Launch at login", isOn: $state.launchAtLogin)
-                    .toggleStyle(.checkbox)
-                    .help("DockFix has to be running when a display is unplugged for the automatic pass to happen")
+    /// Accessibility comes first because nothing below it works without it.
+    private var accessibilityRow: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(state.isTrusted ? Color.green : Color.orange)
+                .frame(width: 8, height: 8)
+            Text(state.isTrusted
+                 ? "Accessibility access granted"
+                 : "Accessibility access needed to move other apps' windows")
+                .font(.system(size: 12))
+                .foregroundStyle(state.isTrusted ? .secondary : .primary)
+            Spacer()
+            if !state.isTrusted {
+                Button("Open Privacy Settings…") { state.requestAccessibility() }
+                    .buttonStyle(SoftButtonStyle(emphasised: true))
+                    .fixedSize()
             }
         }
-    }
-
-    private func rowLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
-            .gridColumnAlignment(.trailing)
+        .padding(.bottom, 2)
     }
 
     // MARK: - Actions
 
     private var actions: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                Button("Check Windows") { state.checkWindows() }
-                    .buttonStyle(SoftButtonStyle())
-                    .disabled(state.isBusy)
-                    .help("List the windows that overlap the Dock or the menu bar without moving anything")
+        HStack(spacing: 8) {
+            // The button says what it is doing rather than sitting next to a
+            // spinner: a spinner needs a slot of its own, and an empty slot
+            // makes the row look mis-set for the whole time nothing is running.
+            Button(state.isBusy ? "Fixing…" : "Fix Windows Now") { state.moveWindows() }
+                .buttonStyle(SoftButtonStyle(emphasised: true))
+                .keyboardShortcut(.defaultAction)
+                .disabled(state.isBusy)
 
-                Button("Move Windows") { state.moveWindows() }
-                    .buttonStyle(SoftButtonStyle(emphasised: true))
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(state.isBusy)
-                    .help("Move and, where needed, narrow those windows so they clear the Dock")
-
-                // Fixed slot, so the buttons beside it do not jump width when a
-                // pass starts.
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(width: 16)
-                    .opacity(state.isBusy ? 1 : 0)
+            Button(state.showLogs ? "Hide Logs" : "Show Logs") {
+                state.showLogs.toggle()
             }
+            .buttonStyle(SoftButtonStyle())
 
-            HStack(spacing: 8) {
-                Button(state.showLogs ? "Hide Logs" : "Show Logs") {
-                    state.showLogs.toggle()
-                }
+            Button("Quit") { state.quit() }
                 .buttonStyle(SoftButtonStyle())
-
-                Button("Quit") { state.quit() }
-                    .buttonStyle(SoftButtonStyle())
-
-                Button("?") { showingHelp.toggle() }
-                    .buttonStyle(RoundButtonStyle())
-                    .popover(isPresented: $showingHelp, arrowEdge: .bottom) { helpCard }
-            }
         }
-    }
-
-    private var helpCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("What DockFix does")
-                .font(.system(size: 13, weight: .semibold))
-            Text("""
-                 Unplug a display and macOS drops your windows onto the built-in \
-                 screen, often half-way under the Dock. DockFix slides them back \
-                 into the usable area, narrowing them only when sliding is not \
-                 enough.
-
-                 It also works the other way round: when the Dock moves to another \
-                 display, windows that were maximised stretch into the strip it \
-                 leaves behind, and windows that were resting against it slide \
-                 across.
-
-                 Closing this window leaves DockFix running in the menu bar, which \
-                 is where it has to be to notice a display being unplugged.
-                 """)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(14)
-        .frame(width: 320)
     }
 
     // MARK: - Log
@@ -258,7 +251,7 @@ struct ContentView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
                     if log.entries.isEmpty {
-                        Text("Drag a window part-way under the Dock, then press Check Windows.")
+                        Text("Nothing yet. Press Fix Windows Now, or unplug a display.")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .padding(6)
@@ -274,6 +267,10 @@ struct ContentView: View {
                 }
                 .padding(6)
             }
+            // A scroll view has no height of its own, and the window is now
+            // exactly its contents, so without this the pane collapses to
+            // nothing and the log looks empty.
+            .frame(height: 320)
             .background(Color(nsColor: .textBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
             .overlay(

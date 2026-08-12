@@ -121,7 +121,7 @@ public final class WindowScanner: Sendable {
     ///   watcher took earlier, so a layout that moved again in between cannot
     ///   produce a correction against a stale visible frame.
     @MainActor
-    public func run(dryRun: Bool,
+    public func run(dryRun: Bool = false,
                     previousScreens: [ScreenInfo]? = nil,
                     completion: @escaping (ScanSummary) -> Void) {
         let screens = ScreenMap.current()

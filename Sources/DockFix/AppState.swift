@@ -51,7 +51,8 @@ final class AppState: ObservableObject {
     /// is polled rather than read once.
     @Published private(set) var isTrusted: Bool
     @Published private(set) var isBusy = false
-    @Published private(set) var displaysSummary = ""
+    /// The current displays, for the window to describe one per row.
+    @Published private(set) var screens: [ScreenInfo] = []
     @Published private(set) var lastSummary: ScanSummary?
 
     let log: Log
@@ -70,7 +71,7 @@ final class AppState: ObservableObject {
 
     /// A pass requested while another was running. Display changes must not be
     /// dropped just because a pass happened to be in flight.
-    private var queuedRun: (dryRun: Bool, trigger: String)?
+    private var queuedRun: String?
 
     /// The display layout as it was before the last change: what tells the
     /// scanner how much room the Dock gave back. Kept only until a pass has
@@ -102,7 +103,7 @@ final class AppState: ObservableObject {
             if pendingReclaim == nil {
                 pendingReclaim = previousScreens
             }
-            run(dryRun: false, trigger: reason)
+            run(trigger: reason)
         }
 
         Self.current = self
@@ -131,13 +132,8 @@ final class AppState: ObservableObject {
 
     // MARK: - Actions
 
-    /// Lists what a move would touch, without touching anything.
-    func checkWindows() {
-        run(dryRun: true, trigger: "Check Windows")
-    }
-
     func moveWindows() {
-        run(dryRun: false, trigger: "Move Windows")
+        run(trigger: "Fix Windows Now")
     }
 
     func requestAccessibility() {
@@ -171,7 +167,7 @@ final class AppState: ObservableObject {
 
     // MARK: - Internals
 
-    private func run(dryRun: Bool, trigger: String) {
+    private func run(trigger: String) {
         guard isTrusted else {
             log.add(level: .fail, app: "DockFix", title: "",
                     detail: "cannot scan windows without Accessibility access")
@@ -182,36 +178,32 @@ final class AppState: ObservableObject {
         // A display change arriving mid-pass is remembered rather than lost. The
         // newest request wins; running the same pass twice would be pointless.
         if isBusy {
-            queuedRun = (dryRun, trigger)
+            queuedRun = trigger
             log.info("\(trigger) queued — a pass is already running")
             return
         }
 
         isBusy = true
-        let label = dryRun ? "check" : "move"
 
-        // A check only reports, so it previews the pending reclaim without
-        // spending it; a move consumes it either way, switched off included —
-        // a snapshot kept across a change nobody acted on would be stale.
+        // Consumed whether or not the reclaim is switched on: a snapshot kept
+        // across a change nobody acted on would only go stale.
         let previousScreens = reclaimEnabled ? pendingReclaim : nil
-        if !dryRun {
-            pendingReclaim = nil
-        }
+        pendingReclaim = nil
 
-        scanner.run(dryRun: dryRun, previousScreens: previousScreens) { [weak self] summary in
+        scanner.run(previousScreens: previousScreens) { [weak self] summary in
             guard let self else { return }
             record(summary)
             // One line per pass, at the end, when there is something to report.
             // The trigger is not repeated: a display change was already logged
             // by the watcher, and a button press was made by the person reading
             // this.
-            log.info("\(label) — \(summary.headline)")
+            log.info("pass — \(summary.headline)")
             lastSummary = summary
             isBusy = false
 
             if let queued = queuedRun {
                 queuedRun = nil
-                run(dryRun: queued.dryRun, trigger: queued.trigger)
+                run(trigger: queued)
             }
         }
     }
@@ -261,12 +253,20 @@ final class AppState: ObservableObject {
     }
 
     private func refreshDisplays() {
-        let screens = ScreenMap.current()
-        let parts = screens.map { screen in
+        let current = ScreenMap.current()
+        // Polled twice a second; only publish when something actually moved, so
+        // the window is not relaid out for nothing.
+        guard current != screens else { return }
+        screens = current
+    }
+
+    /// One line for the log, where a list of rows would not fit.
+    var displaysSummary: String {
+        screens.map { screen in
             "\(screen.localizedName) \(Int(screen.axFrame.width))x\(Int(screen.axFrame.height))"
                 + " dock \(screen.dockEdge)"
                 + (screen.isPrimary && screens.count > 1 ? " (primary)" : "")
         }
-        displaysSummary = parts.joined(separator: "   ·   ")
+        .joined(separator: "   ·   ")
     }
 }

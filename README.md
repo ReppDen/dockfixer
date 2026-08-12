@@ -79,15 +79,15 @@ display change happened, it settles: once moved, the window touches the new edge
 and is a whole Dock's width from the old one, so running the pass again does
 nothing.
 
-This has its own checkbox — **Follow the Dock when it leaves a display** — kept
+This has its own checkbox — **Reclaim the space the Dock leaves behind** — kept
 separate because it moves windows that nothing is currently overlapping, which
 is a bigger liberty than pulling a window out from under the Dock. Switch it off
 and DockFix only does the first half.
 
 It also needs to know where the Dock *was*, which only the display watcher
-records. With **Fix windows automatically** switched off there is no such record,
-so the checkbox is greyed out and the buttons can only push windows out from
-under the Dock.
+records. With **Move windows out from under the Dock** switched off there is no
+such record, so the checkbox is greyed out and the button can only push windows
+out from under the Dock.
 
 Windows it cannot move are written to the log with the reason. No silent
 failures.
@@ -141,7 +141,8 @@ for why that matters.
 
 Moving another application's window is only possible through the Accessibility
 API, so macOS requires explicit permission. DockFix asks on first launch. If you
-miss the prompt, press **Grant…** in the window, or add DockFix yourself under
+miss the prompt, press **Open Privacy Settings…** in the window, or add DockFix
+yourself under
 System Settings → Privacy & Security → Accessibility.
 
 > **Always launch the bundle**, with `open /Applications/DockFix.app`, from
@@ -170,16 +171,18 @@ moment later if nobody came for it. Opening it yourself always keeps it.
 The window opens as just its controls. **Show Logs** widens it to reveal the log
 pane, and the choice is remembered.
 
+The **Screens** section at the top lists every display with its size and what
+the Dock is doing on it, which is the quickest way to tell whether DockFix is
+seeing the same layout you are.
+
 | Control | What it does |
 | --- | --- |
-| **Open DockFix…** *(menu bar)* | Brings the window back after it has been closed. |
-| **Show Logs** | Reveals the log pane, and the buttons for copying and clearing it. Off by default. |
-| **Fix Windows Now** *(menu bar)* | Moves every window that overlaps the Dock or the menu bar. |
-| **Fix automatically when displays change** | Runs a pass whenever a display is connected or disconnected, or the Dock moves. On by default. |
-| **Follow the Dock when it leaves a display** | Stretches and slides windows into the strip the Dock vacates when it moves to another display. On by default; needs the option above. |
+| **Fix Windows Now** | Runs a pass immediately. Also in the menu bar. |
+| **Move windows out from under the Dock** | Runs a pass whenever a display is connected or disconnected, or the Dock moves. On by default. |
+| **Reclaim the space the Dock leaves behind** | Stretches and slides windows into the band the Dock vacates when it moves to another display. On by default; needs the option above. |
 | **Launch at login** | Registers DockFix as a login item. macOS may ask you to allow it under System Settings → General → Login Items. |
-| **Check Windows** *(window)* | Lists what a move would touch, with current and proposed geometry. Changes nothing. |
-| **Move Windows** *(window)* | Applies those corrections. |
+| **Show Logs** | Reveals the log pane, and the buttons for copying and clearing it. Off by default. |
+| **Open DockFix…** *(menu bar)* | Brings the window back after it has been closed. |
 | **Quit** | Fully quits. |
 
 Opening DockFix yourself always shows the window. When launchd starts it at login

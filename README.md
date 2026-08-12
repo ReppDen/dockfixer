@@ -167,9 +167,13 @@ since there is nothing to say. It may flash past on the way — macOS gives no w
 to ask why a process was started, so DockFix shows the window and withdraws it a
 moment later if nobody came for it. Opening it yourself always keeps it.
 
+The window opens as just its controls. **Show Logs** widens it to reveal the log
+pane, and the choice is remembered.
+
 | Control | What it does |
 | --- | --- |
 | **Open DockFix…** *(menu bar)* | Brings the window back after it has been closed. |
+| **Show Logs** | Reveals the log pane, and the buttons for copying and clearing it. Off by default. |
 | **Fix Windows Now** *(menu bar)* | Moves every window that overlaps the Dock or the menu bar. |
 | **Fix automatically when displays change** | Runs a pass whenever a display is connected or disconnected, or the Dock moves. On by default. |
 | **Follow the Dock when it leaves a display** | Stretches and slides windows into the strip the Dock vacates when it moves to another display. On by default; needs the option above. |

@@ -236,7 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         openMainWindow?()
 
         if let window = NSApp.windows.first(where: { Self.isMainWindow($0) }) {
-            adoptCloseButton(of: window)
+            adopt(window)
             if window.isMiniaturized { window.deminiaturize(nil) }
             window.makeKeyAndOrderFront(nil)
             return
@@ -261,7 +261,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// back is an `orderFront` and nothing more — no scene rebuild, no SwiftUI
     /// in the path at all. To the user it looks identical: the window goes away
     /// and the app leaves the Dock.
-    private func adoptCloseButton(of window: NSWindow) {
+    private func adopt(_ window: NSWindow) {
+        // Minimise and zoom are hidden: this is one small window of controls.
+        // Minimising it puts it in the Dock, which is precisely the place the
+        // app leaves when the window goes away, and zooming a fixed set of
+        // checkboxes to full screen is nothing anyone wants. Close is the only
+        // one that means something. Dragging the edges still resizes it.
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
+
         guard let button = window.standardWindowButton(.closeButton),
               button.target !== self
         else { return }

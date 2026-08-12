@@ -29,6 +29,15 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Whether the log pane is on show. Off by default: the window is a place to
+    /// press a button, and the log is for when something looked wrong.
+    @Published var showLogs: Bool {
+        didSet {
+            guard oldValue != showLogs else { return }
+            UserDefaults.standard.set(showLogs, forKey: Self.showLogsKey)
+        }
+    }
+
     /// Mirrors `SMAppService`; kept in sync rather than trusted blindly, because
     /// macOS can hold the registration back pending approval.
     @Published var launchAtLogin: Bool {
@@ -53,6 +62,7 @@ final class AppState: ObservableObject {
 
     private static let autoFixKey = "autoFixOnDisplayChange"
     private static let reclaimKey = "followDockOffDisplay"
+    private static let showLogsKey = "showLogs"
     private let scanner = WindowScanner()
     private var watcher: DisplayWatcher?
     private var pollTimer: Timer?
@@ -74,9 +84,14 @@ final class AppState: ObservableObject {
 
     init() {
         log = Log()
-        UserDefaults.standard.register(defaults: [Self.autoFixKey: true, Self.reclaimKey: true])
+        UserDefaults.standard.register(defaults: [
+            Self.autoFixKey: true,
+            Self.reclaimKey: true,
+            Self.showLogsKey: false,
+        ])
         autoFixEnabled = UserDefaults.standard.bool(forKey: Self.autoFixKey)
         reclaimEnabled = UserDefaults.standard.bool(forKey: Self.reclaimKey)
+        showLogs = UserDefaults.standard.bool(forKey: Self.showLogsKey)
         launchAtLogin = LoginItem.isEnabled
         isTrusted = WindowScanner.isTrusted
 

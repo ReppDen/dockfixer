@@ -5,16 +5,55 @@ struct ContentView: View {
     @EnvironmentObject private var state: AppState
     @ObservedObject var log: Log
 
+    /// Wide enough for a wall of log lines; narrow enough to be just the
+    /// controls when they are all there is.
+    private static let wideWidth: CGFloat = 820
+    private static let narrowWidth: CGFloat = 430
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
             Divider()
             controls
-            logPane
+            if state.showLogs {
+                logPane
+                logActions
+            }
             footer
         }
         .padding(16)
-        .frame(minWidth: 760, minHeight: 480)
+        .frame(minWidth: state.showLogs ? Self.wideWidth : Self.narrowWidth,
+               minHeight: state.showLogs ? 480 : 0)
+        .onAppear {
+            // A window restored at the size it had when the log was on show
+            // would open mostly empty. Only the collapsed case is forced: with
+            // the log up, whatever size it was left at is the right one.
+            guard !state.showLogs else { return }
+            DispatchQueue.main.async { resizeWindow(showingLogs: false) }
+        }
+        .onChange(of: state.showLogs) { _, shown in
+            // The frame above only sets a lower bound; the window keeps whatever
+            // size it already had. Resizing it is what makes showing the log feel
+            // like opening a drawer rather than revealing a cramped one.
+            DispatchQueue.main.async { resizeWindow(showingLogs: shown) }
+        }
+    }
+
+    /// Grows the window for the log, and shrinks it back to fit the controls.
+    ///
+    /// The collapsed height is measured rather than guessed: `fittingSize` is
+    /// what the laid-out content actually needs, so the window hugs it however
+    /// the controls change.
+    private func resizeWindow(showingLogs shown: Bool) {
+        guard let window = NSApp.windows.first(where: { $0.styleMask.contains(.titled) })
+        else { return }
+
+        if shown {
+            window.setContentSize(NSSize(width: Self.wideWidth, height: 560))
+        } else {
+            let height = window.contentView.map { max($0.fittingSize.height, 200) } ?? 260
+            window.setContentSize(NSSize(width: Self.narrowWidth, height: height))
+        }
     }
 
     // MARK: - Header
@@ -75,9 +114,24 @@ struct ContentView: View {
 
                 Spacer()
 
-                Button("Clear Log") { state.clearLog() }
+                Button(state.showLogs ? "Hide Logs" : "Show Logs") {
+                    state.showLogs.toggle()
+                }
                 Button("Quit") { state.quit() }
             }
+        }
+    }
+
+    /// Only useful with the log on show, so only there.
+    private var logActions: some View {
+        HStack(spacing: 8) {
+            Spacer()
+            Button("Clear Log") { state.clearLog() }
+                .controlSize(.small)
+            Button("Copy Log") { state.copyLog() }
+                .controlSize(.small)
+            Button("Reveal Log File") { state.openLogFile() }
+                .controlSize(.small)
         }
     }
 
@@ -138,12 +192,9 @@ struct ContentView: View {
                 Text(summary.headline)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
             Spacer()
-            Button("Copy Log") { state.copyLog() }
-                .controlSize(.small)
-            Button("Reveal Log File") { state.openLogFile() }
-                .controlSize(.small)
         }
     }
 }

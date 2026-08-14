@@ -72,6 +72,7 @@ public final class DisplayWatcher {
     /// The same notification fires when the Dock moves or changes size, so a
     /// Dock rearrangement is handled for free.
     private func screensChanged() {
+        log.debug("screen parameters changed — restarting the wait for the layout to settle")
         pending?.cancel()
         pending = Task { [weak self] in
             await self?.waitForStableLayout()
@@ -101,6 +102,7 @@ public final class DisplayWatcher {
                 stableReadings = 1
                 fingerprint = current
             }
+            log.debug("poll \(polls): \(stableReadings) identical reading\(stableReadings == 1 ? "" : "s") — \(current)")
         }
 
         let screens = ScreenMap.current()
@@ -108,8 +110,11 @@ public final class DisplayWatcher {
 
         guard fingerprint != previousFingerprint else {
             // Woken by something that left the layout identical.
+            log.debug("layout unchanged — \(fingerprint)")
             return
         }
+        log.debug("layout before: \(previousFingerprint)")
+        log.debug("layout after:  \(fingerprint)")
 
         let settled = stableReadings >= requiredStableReadings
         var note = "displays changed: \(previousScreens.count) -> \(screens.count)"

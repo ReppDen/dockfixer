@@ -2,10 +2,17 @@ import Foundation
 import Combine
 
 public enum LogLevel: String, Sendable {
+    /// Everything a pass looked at, whether or not anything came of it. Off in
+    /// a release build: the point of the ordinary log is that every line is
+    /// something that happened, and debug undoes that on purpose.
+    case debug = "DEBUG"
     case info = "INFO"
     case moved = "MOVED"
     case skip = "SKIP"
     case fail = "FAIL"
+
+    /// Only `debug` is ever filtered out; the rest are all worth keeping.
+    var isDebug: Bool { self == .debug }
 }
 
 public struct LogEntry: Identifiable, Sendable {
@@ -41,6 +48,11 @@ public final class Log: ObservableObject {
 
     public let fileURL: URL
 
+    /// Whether `debug` entries are kept. Read from the bundle rather than from
+    /// a preference: which build this is is not something to change by
+    /// accident, and a local build is exactly where the extra detail is wanted.
+    public let isDebug: Bool
+
     private let bufferLimit = 500
     private let rotateAtBytes = 5 * 1024 * 1024
     private let ioQueue = DispatchQueue(label: "com.github.reppden.dockfix.log", qos: .utility)
@@ -58,7 +70,20 @@ public final class Log: ObservableObject {
         return f
     }()
 
-    public init(directory: URL? = nil) {
+    /// The configured level, lowest first. `debug` comes from `DockFixLogLevel`
+    /// in the bundle — `make dev` sets it, a release build leaves it at `info`
+    /// — or from `DOCKFIX_LOG_LEVEL` for a binary run straight from the
+    /// terminal, which has no bundle to read.
+    public static func configuredLevel() -> LogLevel {
+        let raw = ProcessInfo.processInfo.environment["DOCKFIX_LOG_LEVEL"]
+            ?? Bundle.main.object(forInfoDictionaryKey: "DockFixLogLevel") as? String
+        // Anything unrecognised, the unsubstituted placeholder included, means
+        // the quiet level: extra logging is opted into, never fallen into.
+        return raw?.lowercased() == "debug" ? .debug : .info
+    }
+
+    public init(directory: URL? = nil, level: LogLevel? = nil) {
+        isDebug = (level ?? Self.configuredLevel()) == .debug
         let dir = directory ?? FileManager.default
             .homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs/DockFix", isDirectory: true)
@@ -69,7 +94,7 @@ public final class Log: ObservableObject {
         openHandle()
 
         let stamp = Self.sessionHeaderTime.string(from: Date())
-        appendToFile("\n=== DockFix session started \(stamp) ===\n")
+        appendToFile("\n=== DockFix session started \(stamp)\(isDebug ? " (debug logging)" : "") ===\n")
     }
 
     // MARK: - Writing
@@ -78,11 +103,19 @@ public final class Log: ObservableObject {
         add(LogEntry(time: Date(), level: .info, app: nil, title: nil, detail: detail))
     }
 
+    /// Autoclosed so a release build does not pay to build a message it is
+    /// about to throw away.
+    public func debug(_ detail: @autoclosure () -> String) {
+        guard isDebug else { return }
+        add(LogEntry(time: Date(), level: .debug, app: nil, title: nil, detail: detail()))
+    }
+
     public func add(level: LogLevel, app: String?, title: String?, detail: String) {
         add(LogEntry(time: Date(), level: level, app: app, title: title, detail: detail))
     }
 
     public func add(_ entry: LogEntry) {
+        guard !entry.level.isDebug || isDebug else { return }
         entries.append(entry)
         if entries.count > bufferLimit {
             entries.removeFirst(entries.count - bufferLimit)

@@ -64,6 +64,8 @@ final class AppState: ObservableObject {
     private static let autoFixKey = "autoFixOnDisplayChange"
     private static let reclaimKey = "followDockOffDisplay"
     private static let showLogsKey = "showLogs"
+    /// How long to wait before repeating a pass that could not read the windows.
+    private static let retryDelays: [TimeInterval] = [0.75, 1.5, 3]
     private let scanner = WindowScanner()
     private var watcher: DisplayWatcher?
     private var pollTimer: Timer?
@@ -167,7 +169,7 @@ final class AppState: ObservableObject {
 
     // MARK: - Internals
 
-    private func run(trigger: String) {
+    private func run(trigger: String, attempt: Int = 0) {
         guard isTrusted else {
             log.add(level: .fail, app: "DockFix", title: "",
                     detail: "cannot scan windows without Accessibility access")
@@ -189,8 +191,11 @@ final class AppState: ObservableObject {
         // across a change nobody acted on would only go stale.
         let previousScreens = reclaimEnabled ? pendingReclaim : nil
         pendingReclaim = nil
+        log.debug("\(trigger): pass starting"
+            + (attempt > 0 ? ", attempt \(attempt + 1)" : "")
+            + (previousScreens == nil ? ", no layout to compare against" : ", comparing against the layout before the change"))
 
-        scanner.run(previousScreens: previousScreens) { [weak self] summary in
+        scanner.run(previousScreens: previousScreens, debugDetail: log.isDebug) { [weak self] summary in
             guard let self else { return }
             record(summary)
             // One line per pass, at the end, when there is something to report.
@@ -203,7 +208,48 @@ final class AppState: ObservableObject {
 
             if let queued = queuedRun {
                 queuedRun = nil
-                run(trigger: queued)
+                return run(trigger: queued)
+            }
+            retryIfNothingWasReadable(summary,
+                                      previousScreens: previousScreens,
+                                      trigger: trigger,
+                                      attempt: attempt)
+        }
+    }
+
+    /// Applications stop answering while the window server rebuilds the display
+    /// layout, and a display change is precisely when this app runs. A pass that
+    /// lands in that gap reads no windows at all, and the harm is not the wasted
+    /// pass: it consumed the snapshot of the layout before the change, which is
+    /// the only record of where the Dock used to be. That snapshot describes one
+    /// event and cannot be taken again afterwards, so it goes back and the pass
+    /// is repeated.
+    ///
+    /// Bounded, with the waits growing: a display that never comes back to life
+    /// is not something to poll forever, and a Thunderbolt dock can take several
+    /// seconds to settle.
+    private func retryIfNothingWasReadable(_ summary: ScanSummary,
+                                           previousScreens: [ScreenInfo]?,
+                                           trigger: String,
+                                           attempt: Int) {
+        let unreadable = summary.skips[.unreadable] ?? 0
+        guard unreadable > 0 else { return }
+        guard attempt < Self.retryDelays.count else {
+            log.info("\(unreadable) \(unreadable == 1 ? "window" : "windows") still could not be read — giving up on this change")
+            return
+        }
+
+        // The older snapshot is the truer "before", the same rule the watcher's
+        // handler follows, and this one predates anything that has arrived since.
+        if let previousScreens {
+            pendingReclaim = previousScreens
+        }
+
+        let delay = Self.retryDelays[attempt]
+        log.info("\(unreadable) \(unreadable == 1 ? "window" : "windows") could not be read — trying again in \(Int(delay * 1000))ms")
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.run(trigger: trigger, attempt: attempt + 1)
             }
         }
     }

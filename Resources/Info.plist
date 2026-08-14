@@ -28,6 +28,12 @@
 	<true/>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
+	<!-- "info" in a release: every line in the log is then something that
+	     happened. "make dev" substitutes "debug", which adds a line per window
+	     per pass — far too much to read casually, and exactly what is wanted
+	     when a pass did nothing and the question is why. -->
+	<key>DockFixLogLevel</key>
+	<string>__LOG_LEVEL__</string>
 	<!-- Deliberately not LSUIElement: with its window open DockFix is a normal
 	     application, with a Dock icon and an entry in the app switcher. Closing
 	     the window does not quit it — the watcher has to keep running — so it

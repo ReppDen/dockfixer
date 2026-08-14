@@ -220,10 +220,18 @@ property rather than something that happened.
 
 | Level | Meaning |
 | --- | --- |
+| `DEBUG` | Every window a pass looked at, the display layout before and after a change, and why a pass decided as it did. Off in a release build. |
 | `INFO` | Passes, display changes, permission changes. |
 | `MOVED` | Window corrected, with before, after, and by how much. |
 | `SKIP` | Window in the way that cannot be moved or resized at all. Once per session. |
 | `FAIL` | Correction was attempted and did not stick, with what was asked for and what happened. |
+
+`DEBUG` is the exception to the rule above, deliberately: when a pass did nothing
+and the question is why, the counted-not-printed windows are exactly what has to
+be read. A release build logs at `INFO`; `make dev` builds at `DEBUG`, and the
+level is fixed in the bundle rather than in a preference, so which build is
+talkative is never in doubt. A binary run straight from the terminal, which has
+no bundle to read, takes `DOCKFIX_LOG_LEVEL=debug` from the environment instead.
 
 ## Troubleshooting
 

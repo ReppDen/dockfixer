@@ -13,6 +13,11 @@ VERSION   := 0.1.0
 # See the Development section of the README for creating that certificate.
 SIGN_IDENTITY ?= -
 
+# Baked into the bundle. "make dev" overrides it with "debug" so a local build
+# always explains itself; a release stays at "info", where every line is an
+# event rather than a running commentary.
+LOG_LEVEL ?= info
+
 BUILD_DIR := build
 APP       := $(BUILD_DIR)/$(APP_NAME).app
 ZIP       := $(BUILD_DIR)/$(APP_NAME)-$(VERSION).zip
@@ -30,9 +35,9 @@ all: app
 dev-cert:
 	./Scripts/dev-cert.sh
 
-## dev: build and install signed with the local identity, so the Accessibility grant survives rebuilds
+## dev: build and install signed with the local identity, with debug logging, so the Accessibility grant survives rebuilds
 dev: dev-cert
-	$(MAKE) install SIGN_IDENTITY="$(DEV_IDENTITY)"
+	$(MAKE) install SIGN_IDENTITY="$(DEV_IDENTITY)" LOG_LEVEL=debug
 
 ## icon: draw the app icon and build AppIcon.icns
 icon: $(ICNS)
@@ -62,6 +67,7 @@ app: $(ICNS)
 	cp "$$(swift build -c release --show-bin-path)/$(APP_NAME)" "$(APP)/Contents/MacOS/$(APP_NAME)"
 	cp "$(ICNS)" "$(APP)/Contents/Resources/AppIcon.icns"
 	sed -e 's/__BUNDLE_ID__/$(BUNDLE_ID)/g' -e 's/__VERSION__/$(VERSION)/g' \
+		-e 's/__LOG_LEVEL__/$(LOG_LEVEL)/g' \
 		Resources/Info.plist > "$(APP)/Contents/Info.plist"
 	codesign --force --sign "$(SIGN_IDENTITY)" --identifier "$(BUNDLE_ID)" "$(APP)"
 	@echo "built $(APP) (signed with '$(SIGN_IDENTITY)')"

@@ -120,9 +120,15 @@ public final class WindowScanner: Sendable {
     ///   deliberately made against a *fresh* snapshot rather than one the
     ///   watcher took earlier, so a layout that moved again in between cannot
     ///   produce a correction against a stale visible frame.
+    /// - Parameter debugDetail: adds an outcome for every window the pass looked
+    ///   at, including the ones it did nothing about. The scan runs off the main
+    ///   thread and the log is main-actor bound, so debug lines travel back in
+    ///   the summary like every other outcome; the flag keeps a release build
+    ///   from building strings nothing will print.
     @MainActor
     public func run(dryRun: Bool = false,
                     previousScreens: [ScreenInfo]? = nil,
+                    debugDetail: Bool = false,
                     completion: @escaping (ScanSummary) -> Void) {
         let screens = ScreenMap.current()
         let apps = Self.regularApps()
@@ -131,7 +137,8 @@ public final class WindowScanner: Sendable {
             let summary = self.scan(apps: apps,
                                     screens: screens,
                                     previousScreens: previousScreens,
-                                    dryRun: dryRun)
+                                    dryRun: dryRun,
+                                    debugDetail: debugDetail)
             DispatchQueue.main.async { completion(summary) }
         }
     }
@@ -149,8 +156,16 @@ public final class WindowScanner: Sendable {
     private func scan(apps: [AppRef],
                       screens: [ScreenInfo],
                       previousScreens: [ScreenInfo]?,
-                      dryRun: Bool) -> ScanSummary {
+                      dryRun: Bool,
+                      debugDetail: Bool = false) -> ScanSummary {
         var summary = ScanSummary()
+
+        func note(_ app: String, _ title: String, _ detail: String) {
+            guard debugDetail else { return }
+            summary.outcomes.append(WindowOutcome(
+                app: app, title: title, level: .debug, detail: detail))
+        }
+
         guard AX.isTrusted else {
             summary.outcomes.append(WindowOutcome(
                 app: "DockFix", title: "",
@@ -160,6 +175,20 @@ public final class WindowScanner: Sendable {
         }
 
         let reclaim = previousScreens.map { reclaims(previous: $0, current: screens) } ?? [:]
+        if debugDetail {
+            note("DockFix", "", "pass — dry run: \(dryRun), previous layout: \(previousScreens == nil ? "none" : "known")")
+            for screen in screens {
+                note("DockFix", "", "now  \(Self.describe(screen))")
+            }
+            for screen in previousScreens ?? [] {
+                note("DockFix", "", "was  \(Self.describe(screen))")
+            }
+            // Why a display is not in the reclaim map is the question the whole
+            // feature turns on, and the numbers above are what answers it.
+            for screen in screens where reclaim[screen.displayID] == nil {
+                note("DockFix", "", "no reclaim on \(screen.localizedName)")
+            }
+        }
         for screen in screens {
             guard let space = reclaim[screen.displayID] else { continue }
             summary.outcomes.append(WindowOutcome(
@@ -180,10 +209,17 @@ public final class WindowScanner: Sendable {
             for window in windows {
                 summary.windowsSeen += 1
                 process(window: window, app: app, screens: screens,
-                        reclaim: reclaim, dryRun: dryRun, into: &summary)
+                        reclaim: reclaim, dryRun: dryRun,
+                        debugDetail: debugDetail, into: &summary)
             }
         }
         return summary
+    }
+
+    private static func describe(_ screen: ScreenInfo) -> String {
+        "\(screen.localizedName)\(screen.isPrimary ? " (primary)" : "")"
+            + " frame \(screen.axFrame.logDescription)"
+            + " visible \(screen.axVisibleFrame.logDescription)"
     }
 
     private func process(window: AXUIElement,
@@ -191,14 +227,22 @@ public final class WindowScanner: Sendable {
                          screens: [ScreenInfo],
                          reclaim: [CGDirectDisplayID: ReclaimedSpace],
                          dryRun: Bool,
+                         debugDetail: Bool,
                          into summary: inout ScanSummary) {
         let title = AX.string(window, kAXTitleAttribute as String) ?? ""
         let subrole = AX.string(window, kAXSubroleAttribute as String)
+
+        func note(_ detail: String) {
+            guard debugDetail else { return }
+            summary.outcomes.append(WindowOutcome(
+                app: app.name, title: title, level: .debug, detail: detail))
+        }
 
         /// Counted, not logged. Nothing here is an event, and none of it is
         /// actionable — the log is for what a pass did.
         func skip(_ reason: SkipReason) {
             summary.skips[reason, default: 0] += 1
+            note("skipped: \(reason.label(1))")
         }
 
         /// Counted *and* logged once per session: a window that is in the way
@@ -218,9 +262,15 @@ public final class WindowScanner: Sendable {
             return skip(.fullScreen)
         }
         guard let frame = AX.frame(window) else {
+            if debugDetail {
+                note("could not read its geometry — "
+                    + AX.readFailure(window, kAXPositionAttribute as String) + ", "
+                    + AX.readFailure(window, kAXSizeAttribute as String))
+            }
             return skip(.unreadable)
         }
         guard frame.width > 1, frame.height > 1 else {
+            note("degenerate frame \(frame.logDescription)")
             return skip(.unreadable)
         }
 
@@ -242,6 +292,8 @@ public final class WindowScanner: Sendable {
                                    reclaim: reclaim[screen.displayID]) else {
             // Already inside the usable area, with nothing to reclaim.
             // Not logged: this is most windows.
+            note("\(frame.logDescription) on \(screen.localizedName) — nothing to correct"
+                + (reclaim[screen.displayID] == nil ? "" : ", and it was not held by the Dock"))
             return
         }
 

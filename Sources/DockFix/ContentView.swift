@@ -301,6 +301,9 @@ struct ContentView: View {
 
     private func color(for level: LogLevel) -> Color {
         switch level {
+        // Dimmer than the rest: in a debug build these outnumber everything
+        // else, and they are background to whatever is being looked for.
+        case .debug: return .secondary.opacity(0.6)
         case .info: return .secondary
         case .moved: return .green
         case .skip: return .orange

@@ -72,6 +72,41 @@ enum AX {
         return CGRect(origin: origin, size: size)
     }
 
+    /// Why a read came back empty, for the debug log.
+    ///
+    /// The read is repeated rather than plumbed through every accessor: this is
+    /// only ever called after one has already failed, so the extra round trip
+    /// costs nothing on the path that works. `cannotComplete` is the one to
+    /// expect — it is what a messaging timeout looks like, and applications go
+    /// unresponsive while the window server rebuilds the display layout.
+    static func readFailure(_ element: AXUIElement, _ attribute: String) -> String {
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+        return "\(attribute)=\(describe(error))"
+    }
+
+    static func describe(_ error: AXError) -> String {
+        switch error {
+        case .success: return "success (but the value was of an unexpected type)"
+        case .failure: return "failure"
+        case .illegalArgument: return "illegalArgument"
+        case .invalidUIElement: return "invalidUIElement"
+        case .invalidUIElementObserver: return "invalidUIElementObserver"
+        case .cannotComplete: return "cannotComplete (timed out or the app is not responding)"
+        case .attributeUnsupported: return "attributeUnsupported"
+        case .actionUnsupported: return "actionUnsupported"
+        case .notificationUnsupported: return "notificationUnsupported"
+        case .notImplemented: return "notImplemented"
+        case .notificationAlreadyRegistered: return "notificationAlreadyRegistered"
+        case .notificationNotRegistered: return "notificationNotRegistered"
+        case .apiDisabled: return "apiDisabled (Accessibility access is off)"
+        case .noValue: return "noValue"
+        case .parameterizedAttributeUnsupported: return "parameterizedAttributeUnsupported"
+        case .notEnoughPrecision: return "notEnoughPrecision"
+        @unknown default: return "AXError(\(error.rawValue))"
+        }
+    }
+
     static func isSettable(_ element: AXUIElement, _ attribute: String) -> Bool {
         var settable: DarwinBoolean = false
         guard AXUIElementIsAttributeSettable(element, attribute as CFString, &settable) == .success else {

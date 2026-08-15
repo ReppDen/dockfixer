@@ -63,9 +63,14 @@ func reclaimDetection(_ t: TestRun) {
                    CGRect(x: 0, y: 0, width: 1000, height: 800)) == nil,
              "a menu bar disappearing is not a reclaim")
 
-    // Rounding noise is not a Dock.
-    t.expect(space(CGRect(x: 2, y: 38, width: 998, height: 762), noDock) == nil,
-             "a 2pt difference is below the minimum gain")
+    // Rounding noise is not a Dock. A whole point is: that is how much the Dock
+    // changes by when an application opens, and a window is pushed out of the
+    // way for a single point of overlap, so it has to be given back the same
+    // way. See reclaimTracksASmallDockChange.
+    t.expect(space(CGRect(x: 0.25, y: 38, width: 999.75, height: 762), noDock) == nil,
+             "a quarter-point difference is rounding, not a Dock")
+    t.expect(space(CGRect(x: 1, y: 38, width: 999, height: 762), noDock) != nil,
+             "a one-point difference is the Dock changing size")
 
     // One display gains, the other is untouched and absent from the result.
     let before = [info(screenFrame, withLeftDock, id: 1),
@@ -200,6 +205,14 @@ func reclaimGeometry(_ t: TestRun) {
 /// old edge" stops being true once the window has been moved to the new one.
 func reclaimIdempotence(_ t: TestRun) {
     let spaces = [space(withLeftDock, noDock), space(withRightDock, noDock), space(withBottomDock, noDock)]
+    // Every gain from a whole Dock down to the single point it changes by when
+    // an application opens: the small ones are where a fixed "still touching"
+    // tolerance stops being smaller than the gain and starts re-reclaiming.
+    let narrowing: [ReclaimedSpace?] = [1, 2, 3, 7, 21].flatMap { gain -> [ReclaimedSpace?] in
+        [space(CGRect(x: gain, y: 38, width: 1000 - gain, height: 762), noDock),
+         space(CGRect(x: 0, y: 38, width: 1000 - gain, height: 762), noDock),
+         space(CGRect(x: 0, y: 38, width: 1000, height: 762 - gain), noDock)]
+    }
     let windows = [
         // Maximised, in each of the three orientations.
         CGRect(x: 55, y: 38, width: 945, height: 762),
@@ -214,7 +227,7 @@ func reclaimIdempotence(_ t: TestRun) {
         CGRect(x: 12, y: 180, width: 200, height: 100),
         CGRect(x: -200, y: -100, width: 2000, height: 2000),
     ]
-    for s in spaces {
+    for s in spaces + narrowing {
         guard let s else { return t.fail("reclaim missing") }
         for w in windows {
             guard let first = computeFix(window: w, visible: noDock, reclaim: s) else { continue }
@@ -222,6 +235,81 @@ func reclaimIdempotence(_ t: TestRun) {
             t.expect(second == nil,
                      "second pass moved \(first.rect.logDescription) to \(second?.rect.logDescription ?? "nil")")
         }
+    }
+}
+
+/// The Dock changing size by a point, which it does whenever an application
+/// opens or quits, is corrected in both directions and only for the windows the
+/// Dock was actually holding.
+///
+/// The failure this pins down was a ratchet. Pushing a window out from under a
+/// Dock that grew has no threshold — a single point of overlap moves it — so a
+/// reclaim that ignored small changes meant windows crept inwards a point at a
+/// time and nothing ever gave the point back. Logged: 33 one-point pushes, not
+/// one one-point return.
+func reclaimTracksASmallDockChange(_ t: TestRun) {
+    // Each case: the Dock's edge, then the same layout with the Dock one point
+    // thinner, a window resting against it, and where that window belongs.
+    let cases: [(name: String, before: CGRect, after: CGRect, window: CGRect, expected: CGRect)] = [
+        ("left",
+         CGRect(x: 52, y: 38, width: 948, height: 762),
+         CGRect(x: 51, y: 38, width: 949, height: 762),
+         CGRect(x: 52, y: 300, width: 300, height: 200),
+         CGRect(x: 51, y: 300, width: 300, height: 200)),
+        ("right",
+         CGRect(x: 0, y: 38, width: 948, height: 762),
+         CGRect(x: 0, y: 38, width: 949, height: 762),
+         CGRect(x: 648, y: 300, width: 300, height: 200),
+         CGRect(x: 649, y: 300, width: 300, height: 200)),
+        ("bottom",
+         CGRect(x: 0, y: 38, width: 1000, height: 700),
+         CGRect(x: 0, y: 38, width: 1000, height: 701),
+         CGRect(x: 100, y: 538, width: 300, height: 200),
+         CGRect(x: 100, y: 539, width: 300, height: 200)),
+    ]
+
+    for c in cases {
+        guard let space = space(c.before, c.after) else {
+            return t.fail("a one-point \(c.name) Dock change should still be a reclaim")
+        }
+
+        guard let fix = computeFix(window: c.window, visible: c.after, reclaim: space) else {
+            return t.fail("a window resting against the \(c.name) Dock should follow a one-point change")
+        }
+        t.expect(fix.rect == c.expected,
+                 "\(c.name): expected \(c.expected.logDescription), got \(fix.rect.logDescription)")
+
+        // And it stops there. With a gain this small the window ends up only a
+        // point from where the old edge was, which is exactly the situation a
+        // fixed 10pt "still touching" tolerance would misread as another window
+        // to slide.
+        t.expect(computeFix(window: fix.rect, visible: c.after, reclaim: space) == nil,
+                 "\(c.name): a second pass moved the window again")
+
+        // A maximised window grows into the point instead of sliding.
+        let maximised = c.before
+        guard let stretched = computeFix(window: maximised, visible: c.after, reclaim: space) else {
+            return t.fail("\(c.name): a maximised window should grow into a one-point change")
+        }
+        t.expect(stretched.rect == c.after,
+                 "\(c.name): expected \(c.after.logDescription), got \(stretched.rect.logDescription)")
+        t.expect(computeFix(window: stretched.rect, visible: c.after, reclaim: space) == nil,
+                 "\(c.name): a second pass stretched the window again")
+    }
+
+    // The other half of the ratchet, and the reason the tolerance has to shrink
+    // with the change: a window the user parked a few points clear of the Dock
+    // is not being held by it. Sliding it on every shrink while leaving it alone
+    // on every growth would walk it across the screen.
+    guard let small = space(CGRect(x: 52, y: 38, width: 948, height: 762),
+                            CGRect(x: 51, y: 38, width: 949, height: 762)) else {
+        return t.fail("one-point reclaim missing")
+    }
+    for gap in [CGFloat(3), 5, 8] {
+        let parked = CGRect(x: 52 + gap, y: 300, width: 300, height: 200)
+        let fix = computeFix(window: parked, visible: CGRect(x: 51, y: 38, width: 949, height: 762), reclaim: small)
+        t.expect(fix == nil,
+                 "a window \(Int(gap))pt clear of the Dock moved to \(fix?.rect.logDescription ?? "nil")")
     }
 }
 

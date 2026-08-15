@@ -35,7 +35,13 @@ public struct ReclaimedSpace: Equatable, Sendable {
 }
 
 /// Gains smaller than this are noise — a rounding difference, not a Dock.
-public let minimumGainDefault: CGFloat = 4
+///
+/// Low on purpose. The Dock grows and shrinks by a point at a time as
+/// applications open and quit, and pushing a window out of the way has no
+/// threshold at all — a single point of overlap moves it. A higher floor here
+/// made the two directions disagree, and windows ratcheted inwards: every
+/// growth nudged them, no shrink ever gave the point back.
+public let minimumGainDefault: CGFloat = 0.5
 /// Edges within this distance of each other count as touching.
 private let edgeEpsilon: CGFloat = 0.5
 
@@ -147,8 +153,17 @@ private func reclaimAxis(position: CGFloat,
         return AxisReclaim(position: position, length: length)
     }
 
-    let atLow = abs(position - previousLow) <= tolerance
-    let atHigh = abs(position + length - previousHigh) <= tolerance
+    // What idempotence actually rests on. A slid window ends up exactly `gain`
+    // from where the old edge was, so an edge that moved by less than twice the
+    // tolerance would recognise its own work on the next pass and slide the
+    // window again — and the Dock moves by a single point routinely. The end
+    // that did not gain has no such constraint: it never slides anything, it
+    // only helps tell a maximised window from a resting one.
+    let lowTolerance = gainLow > edgeEpsilon ? min(tolerance, gainLow / 2) : tolerance
+    let highTolerance = gainHigh > edgeEpsilon ? min(tolerance, gainHigh / 2) : tolerance
+
+    let atLow = abs(position - previousLow) <= lowTolerance
+    let atHigh = abs(position + length - previousHigh) <= highTolerance
 
     // Both ends: maximised. Checked without regard to which end gained — a
     // full-width window under a left Dock touches the right screen edge too,
@@ -169,6 +184,10 @@ private func reclaimAxis(position: CGFloat,
 ///
 /// Pure geometry, and not clamped to the screen — `computeFix` does that, so a
 /// window that this pushes past an edge is still pulled back the usual way.
+///
+/// `tolerance` is the *most* a window may be from an edge and still count as
+/// having been held by it; a small change to the Dock tightens it further, see
+/// `reclaimAxis`.
 public func reclaimedRect(for window: CGRect,
                           in space: ReclaimedSpace,
                           tolerance: CGFloat = 10) -> CGRect {

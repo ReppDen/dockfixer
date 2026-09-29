@@ -7,34 +7,65 @@ import SwiftUI
 @MainActor
 final class AppState: ObservableObject {
 
-    /// On by default: correcting windows after a display change is the entire
-    /// point, and a user who does not want it can switch it off.
-    @Published var autoFixEnabled: Bool {
+    // The three things that start a correction, each with a switch of its own,
+    // all on by default: each is the app doing its job, and each can be turned
+    // off without losing the other two.
+
+    /// A window that opens under the Dock is moved out of it.
+    @Published var newWindowsEnabled: Bool {
         didSet {
-            guard oldValue != autoFixEnabled else { return }
-            UserDefaults.standard.set(autoFixEnabled, forKey: Self.autoFixKey)
-            autoFixEnabled ? startWatching() : stopWatching()
+            guard oldValue != newWindowsEnabled else { return }
+            UserDefaults.standard.set(newWindowsEnabled, forKey: Self.newWindowsKey)
+            log.info("move new windows: \(newWindowsEnabled ? "enabled" : "disabled")")
+            updateWatchers()
         }
     }
 
-    /// Whether to also follow the Dock when it leaves a display — stretching
-    /// windows into the strip it vacated instead of only pushing them out of
-    /// its way. Separate from `autoFixEnabled` because it moves windows that
-    /// nothing is currently overlapping, which is a bigger liberty to take.
+    /// The Dock grows, shrinks or moves to another edge: windows under it move
+    /// out, and windows resting against it follow it back as it shrinks.
+    /// Following it back is the reclaim, and it is part of this switch rather
+    /// than of `reclaimEnabled`: without it the windows would only ever be
+    /// pushed, and would drift away from a Dock that keeps changing size.
+    @Published var dockChangesEnabled: Bool {
+        didSet {
+            guard oldValue != dockChangesEnabled else { return }
+            UserDefaults.standard.set(dockChangesEnabled, forKey: Self.dockChangesKey)
+            log.info("move windows when the Dock changes: \(dockChangesEnabled ? "enabled" : "disabled")")
+            updateWatchers()
+        }
+    }
+
+    /// A display is connected or removed, and macOS shuffles windows under the
+    /// Dock. On by default: this is what the app was first made for.
+    @Published var displayChangesEnabled: Bool {
+        didSet {
+            guard oldValue != displayChangesEnabled else { return }
+            UserDefaults.standard.set(displayChangesEnabled, forKey: Self.displayChangesKey)
+            log.info("move windows when displays change: \(displayChangesEnabled ? "enabled" : "disabled")")
+            updateWatchers()
+        }
+    }
+
+    /// Whether a display the Dock has left gets its windows stretched into the
+    /// strip it vacated, instead of only pushing windows out of the Dock's way.
+    /// Its own switch because it moves windows nothing is overlapping, which is
+    /// a bigger liberty to take. Display changes only: see `dockChangesEnabled`.
     @Published var reclaimEnabled: Bool {
         didSet {
             guard oldValue != reclaimEnabled else { return }
             UserDefaults.standard.set(reclaimEnabled, forKey: Self.reclaimKey)
-            log.info("follow the Dock off a display: \(reclaimEnabled ? "enabled" : "disabled")")
+            log.info("fill the space the Dock leaves: \(reclaimEnabled ? "enabled" : "disabled")")
         }
     }
 
-    /// Whether the log pane is on show. Off by default: the window is a place to
-    /// press a button, and the log is for when something looked wrong.
-    @Published var showLogs: Bool {
+    /// Whether the menu-bar item is left out. Off by default: with the window
+    /// closed it is the only visible part of the app. Opening the app again
+    /// brings the window back, which is the way in once it is hidden.
+    @Published var hideMenuBarIcon: Bool {
         didSet {
-            guard oldValue != showLogs else { return }
-            UserDefaults.standard.set(showLogs, forKey: Self.showLogsKey)
+            guard oldValue != hideMenuBarIcon else { return }
+            UserDefaults.standard.set(hideMenuBarIcon, forKey: Self.hideMenuBarIconKey)
+            log.info("menu bar icon: \(hideMenuBarIcon ? "hidden" : "shown")")
         }
     }
 
@@ -53,7 +84,15 @@ final class AppState: ObservableObject {
     @Published private(set) var isBusy = false
     /// The current displays, for the window to describe one per row.
     @Published private(set) var screens: [ScreenInfo] = []
-    @Published private(set) var lastSummary: ScanSummary?
+    /// What the last pass did, in words, for the foot of the window.
+    @Published private(set) var lastActivity: Activity?
+
+    struct Activity: Equatable {
+        let text: String
+        let date: Date
+        /// Something could not be moved, and the log says why.
+        let needsAttention: Bool
+    }
 
     let log: Log
 
@@ -61,9 +100,11 @@ final class AppState: ObservableObject {
     /// has no way to be handed a reference, but it has decisions worth logging.
     private(set) static weak var current: AppState?
 
-    private static let autoFixKey = "autoFixOnDisplayChange"
+    private static let newWindowsKey = "moveNewWindows"
+    private static let dockChangesKey = "moveOnDockChange"
+    private static let displayChangesKey = "autoFixOnDisplayChange"
     private static let reclaimKey = "followDockOffDisplay"
-    private static let showLogsKey = "showLogs"
+    private static let hideMenuBarIconKey = "hideMenuBarIcon"
     /// How long to wait before repeating a pass that could not read the windows.
     private static let retryDelays: [TimeInterval] = [0.75, 1.5, 3]
     /// How long a new window is left alone before it is checked. It is
@@ -87,28 +128,56 @@ final class AppState: ObservableObject {
     /// windows the user has moved since.
     private var pendingReclaim: [ScreenInfo]?
 
+    /// Set by the button, cleared by the pass that answers it.
+    private var answerNextPass = false
+
     /// Findings that repeat identically on every pass, already logged once.
     private var noticesLogged = Set<String>()
 
     init() {
         log = Log()
         UserDefaults.standard.register(defaults: [
-            Self.autoFixKey: true,
+            Self.newWindowsKey: true,
+            Self.dockChangesKey: true,
+            Self.displayChangesKey: true,
             Self.reclaimKey: true,
-            Self.showLogsKey: false,
+            Self.hideMenuBarIconKey: false,
         ])
-        autoFixEnabled = UserDefaults.standard.bool(forKey: Self.autoFixKey)
+        newWindowsEnabled = UserDefaults.standard.bool(forKey: Self.newWindowsKey)
+        dockChangesEnabled = UserDefaults.standard.bool(forKey: Self.dockChangesKey)
+        displayChangesEnabled = UserDefaults.standard.bool(forKey: Self.displayChangesKey)
         reclaimEnabled = UserDefaults.standard.bool(forKey: Self.reclaimKey)
-        showLogs = UserDefaults.standard.bool(forKey: Self.showLogsKey)
+        hideMenuBarIcon = UserDefaults.standard.bool(forKey: Self.hideMenuBarIconKey)
         launchAtLogin = LoginItem.isEnabled
         isTrusted = WindowScanner.isTrusted
 
         watcher = DisplayWatcher(log: log) { [weak self] reason, previousScreens in
             guard let self else { return }
-            // Two changes in a row before a pass gets to run: the older
-            // snapshot is the truer "before", so it is the one kept.
-            if pendingReclaim == nil {
-                pendingReclaim = previousScreens
+            // The same notification for both, so which one it was is read off
+            // the layouts: see `classifyLayoutChange`.
+            let keepLayout: Bool
+            switch classifyLayoutChange(previous: previousScreens, current: ScreenMap.current()) {
+            case .dock:
+                guard dockChangesEnabled else {
+                    return log.debug("the Dock changed; moving windows for that is off")
+                }
+                keepLayout = true
+            case .displays:
+                guard displayChangesEnabled else {
+                    return log.debug("the displays changed; moving windows for that is off")
+                }
+                keepLayout = reclaimEnabled
+            }
+            if keepLayout {
+                // Two changes in a row before a pass gets to run: the older
+                // snapshot is the truer "before", so it is the one kept.
+                if pendingReclaim == nil {
+                    pendingReclaim = previousScreens
+                }
+            } else {
+                // Nothing may be reclaimed for this change, and an older
+                // snapshot would reclaim across it.
+                pendingReclaim = nil
             }
             run(trigger: reason)
         }
@@ -126,7 +195,8 @@ final class AppState: ObservableObject {
         refreshDisplays()
         log.info("DockFixer ready — \(displaysSummary)")
         log.info("launch at login: \(LoginItem.statusDescription)")
-        log.info("follow the Dock off a display: \(reclaimEnabled ? "enabled" : "disabled")")
+        log.info("move windows — new windows: \(onOff(newWindowsEnabled)), Dock changes: \(onOff(dockChangesEnabled))"
+            + ", display changes: \(onOff(displayChangesEnabled)), fill the space the Dock leaves: \(onOff(reclaimEnabled))")
 
         if !isTrusted {
             log.info("Accessibility access not granted yet; approve DockFixer in the system prompt, or press Grant")
@@ -134,9 +204,7 @@ final class AppState: ObservableObject {
             // has to be in place before anything useful can happen.
             WindowScanner.requestTrust()
         }
-        if autoFixEnabled {
-            startWatching()
-        }
+        updateWatchers()
 
         pollTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -148,6 +216,9 @@ final class AppState: ObservableObject {
     // MARK: - Actions
 
     func moveWindows() {
+        // A press that changes nothing still needs an answer, or the button
+        // looks broken. Automatic passes that change nothing stay quiet.
+        answerNextPass = true
         run(trigger: "Fix Windows Now")
     }
 
@@ -182,15 +253,14 @@ final class AppState: ObservableObject {
 
     // MARK: - Internals
 
-    private func startWatching() {
-        watcher?.start()
-        windowWatcher?.start()
+    /// Each watcher runs while anything needs it: the display watcher serves
+    /// both Dock and display changes, since macOS reports them as one.
+    private func updateWatchers() {
+        dockChangesEnabled || displayChangesEnabled ? watcher?.start() : watcher?.stop()
+        newWindowsEnabled ? windowWatcher?.start() : windowWatcher?.stop()
     }
 
-    private func stopWatching() {
-        watcher?.stop()
-        windowWatcher?.stop()
-    }
+    private func onOff(_ value: Bool) -> String { value ? "on" : "off" }
 
     /// Not a pass: only the window that opened is looked at, so it neither
     /// waits for one that is running nor uses up the layout a display change
@@ -203,6 +273,7 @@ final class AppState: ObservableObject {
             record(summary)
             if summary.candidates > 0 {
                 log.info("new window — \(summary.headline)")
+                describe(summary, answering: false)
             }
         }
     }
@@ -225,9 +296,9 @@ final class AppState: ObservableObject {
 
         isBusy = true
 
-        // Consumed whether or not the reclaim is switched on: a snapshot kept
-        // across a change nobody acted on would only go stale.
-        let previousScreens = reclaimEnabled ? pendingReclaim : nil
+        // Whether it may be used was decided when the change arrived. Consumed
+        // either way: a snapshot kept across a pass would only go stale.
+        let previousScreens = pendingReclaim
         pendingReclaim = nil
         log.debug("\(trigger): pass starting"
             + (attempt > 0 ? ", attempt \(attempt + 1)" : "")
@@ -241,7 +312,8 @@ final class AppState: ObservableObject {
             // by the watcher, and a button press was made by the person reading
             // this.
             log.info("pass — \(summary.headline)")
-            lastSummary = summary
+            describe(summary, answering: answerNextPass)
+            answerNextPass = false
             isBusy = false
 
             if let queued = queuedRun {
@@ -292,6 +364,27 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// The pass in the words someone looking at the window would use: which
+    /// window, not how many were minimised. The counts stay in the log.
+    private func describe(_ summary: ScanSummary, answering: Bool) {
+        let moved = summary.outcomes.filter { $0.level == .moved }
+        let text: String
+        if summary.failed > 0 {
+            text = summary.failed == 1
+                ? "Couldn't fix a window — see the log"
+                : "Couldn't fix \(summary.failed) windows — see the log"
+        } else if moved.count == 1, let app = moved.first?.app {
+            text = "Fixed a \(app) window"
+        } else if moved.count > 1 {
+            text = "Fixed \(moved.count) windows"
+        } else if answering {
+            text = "Nothing to fix — every window is away from the Dock"
+        } else {
+            return
+        }
+        lastActivity = Activity(text: text, date: Date(), needsAttention: summary.failed > 0)
+    }
+
     private func record(_ summary: ScanSummary) {
         for outcome in summary.outcomes {
             if outcome.logOncePerSession {
@@ -312,7 +405,7 @@ final class AppState: ObservableObject {
             log.info("Accessibility access \(trusted ? "granted" : "revoked")")
             // Observers cannot be registered without the grant, so the ones
             // attempted before it was given all failed.
-            if trusted, autoFixEnabled {
+            if trusted, newWindowsEnabled {
                 windowWatcher?.stop()
                 windowWatcher?.start()
             }

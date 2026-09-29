@@ -54,7 +54,7 @@ public final class DisplayWatcher {
                 self?.screensChanged()
             }
         }
-        log.info("auto-fix on display change: enabled")
+        log.info("watching for Dock and display changes")
     }
 
     public func stop() {
@@ -66,7 +66,7 @@ public final class DisplayWatcher {
         observer = nil
         pending?.cancel()
         pending = nil
-        log.info("auto-fix on display change: disabled")
+        log.info("stopped watching for Dock and display changes")
     }
 
     /// The same notification fires when the Dock moves or changes size, so a
@@ -117,7 +117,10 @@ public final class DisplayWatcher {
         log.debug("layout after:  \(fingerprint)")
 
         let settled = stableReadings >= requiredStableReadings
-        var note = "displays changed: \(previousScreens.count) -> \(screens.count)"
+        // macOS reports both with one notification; the log says which it was.
+        var note = classifyLayoutChange(previous: previousScreens, current: screens) == .dock
+            ? "the Dock changed"
+            : "displays changed: \(previousScreens.count) -> \(screens.count)"
         note += settled ? ", settled after \(polls) polls" : ", still changing after \(polls) polls — going ahead anyway"
         log.info(note)
 

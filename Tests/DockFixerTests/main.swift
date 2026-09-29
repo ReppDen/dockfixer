@@ -14,5 +14,6 @@ run.suite("Reclaim: the Dock moving to another edge", reclaimAcrossAnEdgeChange)
 run.suite("Reclaim: floating windows left alone", reclaimLeavesFloatingWindowsAlone)
 run.suite("Reclaim: result always inside usable area", reclaimAlwaysInside)
 run.suite("ScreenMap: coordinate conversion", screenMapConversion)
+run.suite("ScreenMap: telling a Dock change from a display change", screenMapLayoutChange)
 
 run.finish()

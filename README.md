@@ -84,15 +84,18 @@ display change happened, it settles: once moved, the window touches the new edge
 and is a whole Dock's width from the old one, so running the pass again does
 nothing.
 
-This has its own checkbox — **Reclaim the space the Dock leaves behind** — kept
-separate because it moves windows that nothing is currently overlapping, which
-is a bigger liberty than pulling a window out from under the Dock. Switch it off
-and DockFixer only does the first half.
+The same rule covers a Dock that grows, shrinks or moves to another edge of the
+same display: windows it now covers are pushed out, and windows resting against
+the edge it left follow that edge.
 
-It also needs to know where the Dock *was*, which only the display watcher
-records. With **Move windows out from under the Dock** switched off there is no
-such record, so the checkbox is greyed out and the button can only push windows
-out from under the Dock.
+After a display change this has its own checkbox — **Fill the space the Dock
+leaves behind** — kept separate because it moves windows that nothing is
+currently overlapping, which is a bigger liberty than pulling a window out from
+under the Dock. Switch it off and a display change only pushes windows out.
+
+It also needs to know where the Dock *was*, which only the watcher records.
+**Fix Windows Now** has no such record, so it only ever pushes windows out from
+under the Dock.
 
 Windows it cannot move are written to the log with the reason. No silent
 failures.
@@ -101,6 +104,19 @@ Bounds come from each screen's *visible frame*, which already excludes the Dock
 and the menu bar. The Dock's position is therefore never hardcoded: Docks on the
 left, right and bottom all work, an auto-hidden Dock correctly becomes a no-op,
 and moving or resizing the Dock triggers a pass of its own.
+
+### Three triggers, three switches
+
+| Switch | What starts a correction |
+| --- | --- |
+| **When a new window opens under the Dock** | An application opens a window underneath it. Only that window is moved. |
+| **When the Dock changes size or position** | The Dock grows, shrinks or moves to another edge. Windows under it move out; windows next to it stay next to it. |
+| **When you connect or remove a display** | macOS shuffles windows between displays. **Fill the space the Dock leaves behind** is part of this one. |
+
+macOS reports a Dock change and a display change with the same notification.
+DockFixer tells them apart by comparing the layout before and after: the same
+displays at the same places with only a visible frame changed is the Dock.
+Windows you move yourself are never touched by any of them.
 
 ## Requirements
 
@@ -145,10 +161,11 @@ for why that matters.
 ## First run
 
 Moving another application's window is only possible through the Accessibility
-API, so macOS requires explicit permission. DockFixer asks on first launch. If you
-miss the prompt, press **Open Privacy Settings…** in the window, or add DockFixer
-yourself under
-System Settings → Privacy & Security → Accessibility.
+API, so macOS requires explicit permission. DockFixer asks on first launch, and until
+the permission is granted its window shows what to do instead of its settings,
+with an **Open System Settings** button. Turn on the switch next to DockFixer
+under System Settings → Privacy & Security → Accessibility, and the window moves
+on to the settings by itself.
 
 > **Always launch the bundle**, with `open /Applications/DockFixer.app`, from
 > Finder, or from Spotlight — never by running `DockFixer.app/Contents/MacOS/DockFixer`
@@ -166,28 +183,31 @@ With its window open it is a normal application: Dock icon, app-switcher entry,
 menu bar. Closing the window does not quit — the watcher has to keep running —
 so it steps out of the way instead: the Dock icon and the ⌘⇥ entry disappear and
 only the menu-bar item is left. **Open DockFixer…** in that menu brings the window,
-and the Dock icon, back. Quitting is explicit, from the button or ⌘Q.
+and the Dock icon, back, and so does ⌘, or opening the app again. Quitting is
+explicit, from the **Quit** button, the menu bar or ⌘Q.
+
+With **Hide menu bar icon** on and the window closed, DockFixer runs with no
+visible trace. Open it again from Spotlight, Finder or Launchpad to get the
+window back — or to quit it.
 
 Started at login it goes straight to the menu bar without showing the window,
 since there is nothing to say. It may flash past on the way — macOS gives no way
 to ask why a process was started, so DockFixer shows the window and withdraws it a
 moment later if nobody came for it. Opening it yourself always keeps it.
 
-The window opens as just its controls. **Show Logs** widens it to reveal the log
-pane, and the choice is remembered.
-
-The **Screens** section at the top lists every display with its size and what
-the Dock is doing on it, which is the quickest way to tell whether DockFixer is
-seeing the same layout you are.
+Everything is on one page. **Screens** lists every display with its size and
+which edge the Dock is on — the quickest way to tell whether DockFixer is seeing
+the same layout you are.
 
 | Control | What it does |
 | --- | --- |
-| **Fix Windows Now** | Runs a pass immediately. Also in the menu bar. |
-| **Move windows out from under the Dock** | Runs a pass whenever a display is connected or disconnected, or the Dock moves. On by default. |
-| **Reclaim the space the Dock leaves behind** | Stretches and slides windows into the band the Dock vacates when it moves to another display. On by default; needs the option above. |
+| **Dock Settings…** | Opens System Settings → Desktop & Dock, where the Dock is moved and resized. |
+| **Move windows** — three switches | See [Three triggers, three switches](#three-triggers-three-switches). All on by default. The same switches are in the menu bar. |
+| **Fix Windows Now** | Runs a pass immediately and says what it did underneath. Also in the menu bar. |
 | **Launch at login** | Registers DockFixer as a login item. macOS may ask you to allow it under System Settings → General → Login Items. |
-| **Show Logs** | Reveals the log pane, and the buttons for copying and clearing it. Off by default. |
-| **Open DockFixer…** *(menu bar)* | Brings the window back after it has been closed. |
+| **Hide menu bar icon** | Leaves the menu-bar item out. Off by default. |
+| **GitHub · Report a Bug · Ask a Question** | The repository, a new issue with the version, macOS and Dock position filled in, and Discussions. |
+| **Show Log** | Opens the log in a window of its own, with Copy, Clear and Reveal in Finder. |
 | **Quit** | Fully quits. |
 
 Opening DockFixer yourself always shows the window. When launchd starts it at login
@@ -300,12 +320,15 @@ make help       # list targets
 | `Sources/DockFixerCore/ScreenMap.swift` | Converts `NSScreen` rects into the Accessibility API's coordinate space. |
 | `Sources/DockFixerCore/AX.swift` | Wrappers over the C Accessibility API. |
 | `Sources/DockFixerCore/WindowScanner.swift` | Enumerates windows, applies corrections, verifies they stuck. |
-| `Sources/DockFixerCore/DisplayWatcher.swift` | Display-change detection and settling. |
+| `Sources/DockFixerCore/Reclaim.swift` | Following the Dock: the space it gave back and which windows it was holding. Pure. |
+| `Sources/DockFixerCore/DisplayWatcher.swift` | Dock- and display-change detection and settling. |
+| `Sources/DockFixerCore/WindowWatcher.swift` | Notices new windows, so one opened under the Dock is moved at once. |
 | `Sources/DockFixerCore/Log.swift` | File log and the in-memory buffer the window renders. |
 | `Sources/DockFixer/` | SwiftUI window, menu-bar item, app state. |
 | `Tests/DockFixerTests/` | Unit tests. |
 | `Scripts/make-icon.swift` | Draws the app icon, so no binary artwork is committed. |
 | `Scripts/dev-cert.sh` | Creates the local code-signing identity. |
+| `Scripts/svg-to-pdf.swift`, `Resources/github-mark.svg` | The GitHub mark on the GitHub button, kept as SVG and drawn to PDF at build time. |
 
 ### Notes for contributors
 
@@ -361,4 +384,5 @@ Issues and pull requests are welcome.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Third-party material and its licence:
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

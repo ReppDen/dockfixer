@@ -1,12 +1,11 @@
 import DockFixerCore
 import SwiftUI
 
-/// A wide, softly filled button: the shape the controls in this window take.
+/// A softly filled button sized to its title: the shape the controls in this
+/// window take.
 ///
-/// AppKit's default push button is sized to its text, so a row of them reads as
-/// a ragged line of small boxes. These stretch to share the row evenly, which
-/// gives the window a spine and makes the primary action look like the point of
-/// it rather than an afterthought.
+/// Sized to the text, not stretched across the row: a full-width button reads
+/// as the one thing the window is for, and this window is mostly checkboxes.
 struct SoftButtonStyle: ButtonStyle {
     /// A little more fill, for the action the window exists to perform.
     var emphasised = false
@@ -28,15 +27,16 @@ struct SoftButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .font(.system(size: 13))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 7)
+                .font(.system(size: 12))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
                 .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(Color.primary.opacity(fill))
                 )
                 .foregroundStyle(isEnabled ? Color.primary : Color.secondary)
-                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .fixedSize()
                 .onHover { hovering = $0 }
         }
 
@@ -49,280 +49,319 @@ struct SoftButtonStyle: ButtonStyle {
     }
 }
 
+/// Where the links at the foot of the window go. Buy Me a Coffee has no page yet, and a
+/// button that goes nowhere is worse than none.
+enum Links {
+    static let repository = URL(string: "https://github.com/ReppDen/dockfixer")!
+    static let discussions = URL(string: "https://github.com/ReppDen/dockfixer/discussions")!
+    /// System Settings → Desktop & Dock. Where the Dock is moved, resized and
+    /// hidden: sending people there needs no permission, where moving the Dock
+    /// from here would need Automation access to System Events.
+    static let dockSettings = URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension")!
+    static let buyMeACoffee: URL? = nil
+
+    /// A new issue with the facts a report always needs already filled in, so
+    /// nobody has to be asked for them afterwards.
+    static func bugReport(screens: [ScreenInfo]) -> URL {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        let displays = screens.map { "\($0.localizedName), \(ContentView.dockDescription($0))" }
+            .joined(separator: "; ")
+        let body = """
+                   **What happened**
+
+
+                   **What you expected**
+
+
+                   **Log lines** (DockFixer → About → Show Log → Copy Log)
+
+                   ```
+                   ```
+
+                   ---
+                   DockFixer \(version) · macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion) · \(displays)
+                   """
+        var components = URLComponents(url: repository.appendingPathComponent("issues/new"),
+                                       resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "body", value: body)]
+        return components.url ?? repository
+    }
+}
+
+/// Everything on one page: who the app is, what it sees, what it does, and the
+/// way out to the log and the project.
 struct ContentView: View {
     @EnvironmentObject private var state: AppState
-    @ObservedObject var log: Log
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openURL) private var openURL
 
-    /// Wide enough for a wall of log lines; narrow enough to be just the
-    /// controls when they are all there is.
-    private static let wideWidth: CGFloat = 860
-    private static let narrowWidth: CGFloat = 560
-    private static let padding: CGFloat = 18
+    private static let width: CGFloat = 600
+    /// Section names sit flush right in a column of their own, as in macOS
+    /// settings. Fixed widths, not a `Form`, so the window sized by its
+    /// contents has nothing to negotiate.
+    private static let labelWidth: CGFloat = 100
+    private static let controlWidth: CGFloat = 448
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            section("Screens") { screens }
-            section("Behaviour") { behaviour }
-            actions
-            if state.showLogs {
-                logPane
-                logActions
+        Group {
+            if state.isTrusted {
+                page
+            } else {
+                OnboardingView()
             }
-            footer
         }
-        .padding(Self.padding)
-        .frame(width: state.showLogs ? Self.wideWidth : Self.narrowWidth)
+        .padding(20)
+        .frame(width: Self.width)
+        .animation(.easeInOut(duration: 0.2), value: state.isTrusted)
+        .onChange(of: state.isTrusted) { _, trusted in
+            // The switch was turned on in System Settings, which is in front.
+            // Coming forward shows that it worked, and that there is a next step.
+            if trusted { NSApp.activate() }
+        }
     }
 
-    // MARK: - Section chrome
+    private var page: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            header
+            Divider()
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 16) {
+                row("Screens") { screens }
+                row("Move windows") { dock }
+                row("Startup") {
+                    Toggle("Launch at login", isOn: $state.launchAtLogin)
+                }
+                row("Menu bar") {
+                    option(isOn: $state.hideMenuBarIcon,
+                           title: "Hide menu bar icon",
+                           detail: "Open DockFixer again to show this window or quit.")
+                }
+            }
+            Divider()
+            footer
+        }
+    }
 
-    private func section<Content: View>(_ title: String,
-                                        @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .kerning(0.6)
-            content()
+    // MARK: - Header
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 48, height: 48)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("DockFixer")
+                        .font(.system(size: 17, weight: .semibold))
+                    Text(Self.version)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text("Keeps your windows away from the Dock.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
     // MARK: - Screens
 
-    /// One row per display: what it is, and what the Dock is doing on it.
-    ///
-    /// The Dock's whereabouts are the whole reason this app exists, so they are
-    /// shown rather than described — it is also the fastest way to tell whether
-    /// DockFixer is seeing the same layout you are.
+    /// One row per display: its name, its size, and where its Dock is.
     private var screens: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(state.screens, id: \.displayID) { screen in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            Text(screen.localizedName)
-                                .font(.system(size: 13, weight: .medium))
-                            if screen.isPrimary, state.screens.count > 1 {
-                                Text("PRIMARY")
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .kerning(0.4)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 1)
-                                    .background(
-                                        Capsule().fill(Color.primary.opacity(0.1))
-                                    )
-                            }
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(screen.localizedName)
+                        if screen.isPrimary, state.screens.count > 1 {
+                            Text("PRIMARY")
+                                .font(.system(size: 9, weight: .semibold))
+                                .kerning(0.4)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(Color.primary.opacity(0.1)))
                         }
-                        Text(describe(screen))
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
                     }
-                    Spacer()
+                    Text(Self.describe(screen))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+            }
+            Button { openURL(Links.dockSettings) } label: {
+                Label("Dock Settings…", systemImage: "dock.rectangle")
+            }
+            .buttonStyle(SoftButtonStyle())
+            .padding(.top, 2)
+        }
+    }
+
+    /// `Looks like 1512 × 982 · Dock on the left`
+    ///
+    /// Points, not pixels, and said the way System Settings → Displays says it:
+    /// a bare 1512 × 982 next to a 3024 × 1964 panel reads as a mistake.
+    static func describe(_ screen: ScreenInfo) -> String {
+        "Looks like \(Int(screen.axFrame.width)) × \(Int(screen.axFrame.height)) · \(dockDescription(screen))"
+    }
+
+    static func dockDescription(_ screen: ScreenInfo) -> String {
+        let insets = screen.insets
+        let edges = [("left", insets.left), ("right", insets.right), ("bottom", insets.bottom)]
+        guard let dock = edges.max(by: { $0.1 < $1.1 }), dock.1 > 1 else {
+            return "No Dock on this display"
+        }
+        return "Dock on the \(dock.0)"
+    }
+
+    // MARK: - Dock
+
+    private var dock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Each title finishes the sentence the row's name starts: "Move
+            // windows" · "when a new window opens under the Dock".
+            option(isOn: $state.newWindowsEnabled,
+                   title: "When a new window opens under the Dock")
+            // Not "windows move with the Dock": a Dock that moves to another
+            // edge pushes windows out of its way, and nothing follows it there.
+            option(isOn: $state.dockChangesEnabled,
+                   title: "When the Dock changes size or position",
+                   detail: "Windows under it move out. Windows next to it stay next to it.")
+            option(isOn: $state.displayChangesEnabled,
+                   title: "When you connect or remove a display")
+            option(isOn: $state.reclaimEnabled,
+                   // No edge named: the Dock can sit on any side.
+                   title: "Fill the space the Dock leaves behind",
+                   detail: "If the Dock moves to another display, windows stretch into the gap.",
+                   // Only display changes take the Dock to another display.
+                   enabled: state.displayChangesEnabled)
+                .padding(.leading, 20)
+
+            // The result goes under the button rather than beside it, where a
+            // longer sentence had no room.
+            VStack(alignment: .leading, spacing: 6) {
+                Button { state.moveWindows() } label: {
+                    Label(state.isBusy ? "Fixing…" : "Fix Windows Now", systemImage: "wrench.and.screwdriver")
+                }
+                    .buttonStyle(SoftButtonStyle(emphasised: true))
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(state.isBusy)
+                activity
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    /// What the last pass did, and when. Nothing until something happened: an
+    /// empty line is not worth a sentence.
+    @ViewBuilder
+    private var activity: some View {
+        if let activity = state.lastActivity {
+            // Counted from the event, not from the clock's minute: `.everyMinute`
+            // ticks on the minute, so "just now" lasted anywhere up to two.
+            TimelineView(.periodic(from: activity.date, by: 60)) { context in
+                HStack(spacing: 6) {
+                    Text("\(activity.text) · \(Self.when(activity.date, now: context.date))")
+                        .foregroundStyle(activity.needsAttention ? Color.orange : Color.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if activity.needsAttention {
+                        Button("Show Log") { openWindow(id: DockFixerApp.logWindowID) }
+                            .buttonStyle(.link)
+                    }
+                }
+                .font(.caption)
             }
         }
     }
 
-    /// `1920 × 1080  ·  Dock on the left, 48 pt wide`
-    private func describe(_ screen: ScreenInfo) -> String {
-        let size = "\(Int(screen.axFrame.width)) × \(Int(screen.axFrame.height))"
-        let insets = screen.insets
-        let edges = [("left", insets.left, "wide"),
-                     ("right", insets.right, "wide"),
-                     ("bottom", insets.bottom, "tall")]
-
-        guard let dock = edges.max(by: { $0.1 < $1.1 }), dock.1 > 1 else {
-            return size + "  ·  No Dock on this display"
-        }
-        return size + "  ·  Dock on the \(dock.0), \(Int(dock.1.rounded())) pt \(dock.2)"
+    /// `just now` for the first minute, then minutes: redrawn once a minute
+    /// from the event, anything finer would sit wrong for most of it.
+    private static func when(_ date: Date, now: Date) -> String {
+        now.timeIntervalSince(date) < 60
+            ? "just now"
+            : date.formatted(.relative(presentation: .named))
     }
 
-    // MARK: - Behaviour
+    // MARK: - Footer
 
-    private var behaviour: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            accessibilityRow
-
-            option(isOn: $state.autoFixEnabled,
-                   title: "Move windows out from under the Dock",
-                   detail: """
-                           Connecting or disconnecting a display makes macOS shuffle \
-                           windows around, and some of them land underneath the Dock \
-                           with their edges out of reach. This slides them back into \
-                           the usable area as soon as that happens — and does the same \
-                           for a new window that opens underneath it.
-                           """)
-
-            option(isOn: $state.reclaimEnabled,
-                   // No mention of an edge anywhere in here: the Dock can sit on
-                   // any side, and the wording has to hold for all of them.
-                   title: "Reclaim the space the Dock leaves behind",
-                   detail: """
-                           When the Dock moves to another display, the one it was on \
-                           keeps an empty band the size of the Dock. Windows that filled \
-                           the screen stretch into it; windows that were resting against \
-                           the Dock move over to take it.
-                           """,
-                   // Knowing where the Dock used to be needs the display
-                   // watcher, so this can only do anything while the option
-                   // above is on.
-                   enabled: state.autoFixEnabled,
-                   indented: true)
-
-            // No explanation: this one says all it needs to.
-            option(isOn: $state.launchAtLogin, title: "Launch at login")
+    /// The way out: to the project, and to the log for when something looked
+    /// wrong. Quitting is here too, since the menu-bar icon may be hidden.
+    private var footer: some View {
+        HStack(spacing: 6) {
+            Button { openURL(Links.repository) } label: {
+                Label { Text("GitHub") } icon: { Self.githubMark }
+            }
+            .buttonStyle(SoftButtonStyle())
+            link("Report a Bug", "ladybug", Links.bugReport(screens: state.screens))
+            link("Ask a Question", "questionmark.circle", Links.discussions)
+            if let coffee = Links.buyMeACoffee {
+                link("Buy Me a Coffee", "cup.and.saucer", coffee)
+            }
+            Button { openWindow(id: DockFixerApp.logWindowID) } label: {
+                Label("Show Log", systemImage: "doc.text")
+            }
+            .buttonStyle(SoftButtonStyle())
+            Spacer()
+            Button { state.quit() } label: {
+                Label("Quit", systemImage: "xmark.circle")
+            }
+            .buttonStyle(SoftButtonStyle())
         }
     }
 
-    /// A checkbox, with the reason for it underneath when the title alone does
-    /// not carry it.
+    private func link(_ title: String, _ icon: String, _ url: URL) -> some View {
+        Button { openURL(url) } label: {
+            Label(title, systemImage: icon)
+        }
+        .buttonStyle(SoftButtonStyle())
+    }
+
+    /// SF Symbols has no brand marks, so GitHub's own comes from Octicons (MIT),
+    /// bundled as a PDF by the Makefile. A template image, so it takes the
+    /// label's colour in light and dark alike.
+    private static var githubMark: some View {
+        let image = Bundle.main.image(forResource: "github-mark") ?? NSImage()
+        image.isTemplate = true
+        return Image(nsImage: image)
+            .resizable()
+            .frame(width: 13, height: 13)
+    }
+
+    private static var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+    }
+
+    // MARK: - Pieces
+
+    /// One line of the page: its name flush right, then the controls.
+    private func row<Content: View>(_ label: String,
+                                    @ViewBuilder content: () -> Content) -> some View {
+        GridRow {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .frame(width: Self.labelWidth, alignment: .trailing)
+            content()
+                .frame(width: Self.controlWidth, alignment: .leading)
+        }
+    }
+
+    /// A checkbox, with a line under it when the title alone does not say what
+    /// it does.
     private func option(isOn: Binding<Bool>,
                         title: String,
                         detail: String? = nil,
-                        enabled: Bool = true,
-                        indented: Bool = false) -> some View {
+                        enabled: Bool = true) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Toggle(title, isOn: isOn)
-                .toggleStyle(.checkbox)
             if let detail {
                 Text(detail)
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    // Line the explanation up with the checkbox's label rather
-                    // than with the box itself.
+                    // Under the label, not under the box.
                     .padding(.leading, 20)
             }
         }
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.5)
-        .padding(.leading, indented ? 20 : 0)
-    }
-
-    /// Accessibility comes first because nothing below it works without it.
-    private var accessibilityRow: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(state.isTrusted ? Color.green : Color.orange)
-                .frame(width: 8, height: 8)
-            Text(state.isTrusted
-                 ? "Accessibility access granted"
-                 : "Accessibility access needed to move other apps' windows")
-                .font(.system(size: 12))
-                .foregroundStyle(state.isTrusted ? .secondary : .primary)
-            Spacer()
-            if !state.isTrusted {
-                Button("Open Privacy Settings…") { state.requestAccessibility() }
-                    .buttonStyle(SoftButtonStyle(emphasised: true))
-                    .fixedSize()
-            }
-        }
-        .padding(.bottom, 2)
-    }
-
-    // MARK: - Actions
-
-    private var actions: some View {
-        HStack(spacing: 8) {
-            // The button says what it is doing rather than sitting next to a
-            // spinner: a spinner needs a slot of its own, and an empty slot
-            // makes the row look mis-set for the whole time nothing is running.
-            Button(state.isBusy ? "Fixing…" : "Fix Windows Now") { state.moveWindows() }
-                .buttonStyle(SoftButtonStyle(emphasised: true))
-                .keyboardShortcut(.defaultAction)
-                .disabled(state.isBusy)
-
-            Button(state.showLogs ? "Hide Logs" : "Show Logs") {
-                state.showLogs.toggle()
-            }
-            .buttonStyle(SoftButtonStyle())
-
-            Button("Quit") { state.quit() }
-                .buttonStyle(SoftButtonStyle())
-        }
-    }
-
-    // MARK: - Log
-
-    private var logPane: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
-                    if log.entries.isEmpty {
-                        Text("Nothing yet. Press Fix Windows Now, or unplug a display.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .padding(6)
-                    }
-                    ForEach(log.entries) { entry in
-                        Text(Log.format(entry))
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(color(for: entry.level))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .id(entry.id)
-                    }
-                }
-                .padding(6)
-            }
-            // A scroll view has no height of its own, and the window is now
-            // exactly its contents, so without this the pane collapses to
-            // nothing and the log looks empty.
-            .frame(height: 320)
-            .background(Color(nsColor: .textBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(Color(nsColor: .separatorColor))
-            )
-            .onChange(of: log.entries.count) {
-                // Follow the tail, which is where new results appear.
-                if let last = log.entries.last {
-                    withAnimation(.linear(duration: 0.1)) {
-                        proxy.scrollTo(last.id, anchor: .bottom)
-                    }
-                }
-            }
-        }
-    }
-
-    /// Only useful with the log on show, so only there.
-    private var logActions: some View {
-        HStack(spacing: 8) {
-            Button("Clear Log") { state.clearLog() }
-                .buttonStyle(SoftButtonStyle())
-            Button("Copy Log") { state.copyLog() }
-                .buttonStyle(SoftButtonStyle())
-            Button("Reveal Log File") { state.openLogFile() }
-                .buttonStyle(SoftButtonStyle())
-        }
-    }
-
-    private func color(for level: LogLevel) -> Color {
-        switch level {
-        // Dimmer than the rest: in a debug build these outnumber everything
-        // else, and they are background to whatever is being looked for.
-        case .debug: return .secondary.opacity(0.6)
-        case .info: return .secondary
-        case .moved: return .green
-        case .skip: return .orange
-        case .fail: return .red
-        }
-    }
-
-    // MARK: - Footer
-
-    private var footer: some View {
-        HStack {
-            if let summary = state.lastSummary {
-                Text(summary.headline)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-            Spacer()
-        }
     }
 }

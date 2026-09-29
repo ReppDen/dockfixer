@@ -97,3 +97,40 @@ func screenMapConversion(_ t: TestRun) {
     t.expect(ScreenMap.fingerprint([dockMoved, external]) != a, "fingerprint reacts to a Dock move")
     t.expect(ScreenMap.fingerprint([builtIn]) != a, "fingerprint reacts to an unplugged display")
 }
+
+func screenMapLayoutChange(_ t: TestRun) {
+    let laptop = CGRect(x: 0, y: 0, width: 1512, height: 982)
+    let external = CGRect(x: 1512, y: 0, width: 2560, height: 1440)
+    let leftDock = CGRect(x: 55, y: 33, width: 1457, height: 949)
+    let smallerDock = CGRect(x: 48, y: 33, width: 1464, height: 949)
+    let bottomDock = CGRect(x: 0, y: 33, width: 1512, height: 889)
+
+    let before = [info(id: 1, frame: laptop, visible: leftDock, primary: true)]
+
+    t.expect(classifyLayoutChange(previous: before,
+                                  current: [info(id: 1, frame: laptop, visible: smallerDock, primary: true)]) == .dock,
+             "a Dock that shrank is a Dock change")
+    t.expect(classifyLayoutChange(previous: before,
+                                  current: [info(id: 1, frame: laptop, visible: bottomDock, primary: true)]) == .dock,
+             "a Dock that moved to another edge is a Dock change")
+    t.expect(classifyLayoutChange(previous: before,
+                                  current: [info(id: 1, frame: laptop, visible: leftDock, primary: true),
+                                            info(id: 2, frame: external, visible: external)]) == .displays,
+             "a display plugged in is a display change")
+    t.expect(classifyLayoutChange(previous: before + [info(id: 2, frame: external, visible: external)],
+                                  current: before) == .displays,
+             "a display unplugged is a display change")
+    t.expect(classifyLayoutChange(previous: before,
+                                  current: [info(id: 1, frame: CGRect(x: 0, y: 0, width: 1800, height: 1169),
+                                                 visible: CGRect(x: 55, y: 33, width: 1745, height: 1136),
+                                                 primary: true)]) == .displays,
+             "a resolution switch is a display change, whatever the Dock did")
+    // Becoming the primary display shifts every rect in Accessibility space,
+    // so the frame moves although nothing physical did.
+    t.expect(classifyLayoutChange(previous: [info(id: 1, frame: laptop, visible: leftDock, primary: true),
+                                             info(id: 2, frame: external, visible: external)],
+                                  current: [info(id: 1, frame: laptop.offsetBy(dx: -2560, dy: 0), visible: leftDock.offsetBy(dx: -2560, dy: 0)),
+                                            info(id: 2, frame: CGRect(x: 0, y: 0, width: 2560, height: 1440),
+                                                 visible: CGRect(x: 0, y: 0, width: 2560, height: 1440), primary: true)]) == .displays,
+             "a change of primary display is a display change")
+}

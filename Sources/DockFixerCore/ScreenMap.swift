@@ -128,3 +128,21 @@ public enum ScreenMap {
             .joined(separator: "|")
     }
 }
+
+/// What a change of screen parameters was, told from the layout before and
+/// after it. macOS sends the same notification for both.
+public enum LayoutChange: Equatable, Sendable {
+    /// The same displays at the same places, and only a visible frame changed:
+    /// the Dock grew, shrank or moved to another edge.
+    case dock
+    /// A display came, went, moved, changed resolution or became the primary
+    /// one. The Dock moving to another display is one of these too: it only
+    /// does that when the displays change.
+    case displays
+}
+
+public func classifyLayoutChange(previous: [ScreenInfo], current: [ScreenInfo]) -> LayoutChange {
+    let before = Dictionary(previous.map { ($0.displayID, $0.axFrame) }, uniquingKeysWith: { a, _ in a })
+    let after = Dictionary(current.map { ($0.displayID, $0.axFrame) }, uniquingKeysWith: { a, _ in a })
+    return before == after ? .dock : .displays
+}

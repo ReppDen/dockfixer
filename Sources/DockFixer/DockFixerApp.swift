@@ -4,17 +4,28 @@ import SwiftUI
 @main
 struct DockFixerApp: App {
     static let mainWindowID = "main"
+    static let logWindowID = "log"
+    /// How the settings window is told apart from the log and from AppKit's own
+    /// panels. Set here, so it is known rather than guessed.
+    static let mainWindowTitle = "DockFixer"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var state = AppState()
 
     var body: some Scene {
-        Window("DockFixer", id: Self.mainWindowID) {
-            ContentView(log: state.log)
+        Window(Self.mainWindowTitle, id: Self.mainWindowID) {
+            ContentView()
                 .environmentObject(state)
+                // The menu-bar item hands this over too, but it may be hidden.
+                .background(WindowOpener(delegate: delegate))
         }
         .commands {
             CommandGroup(replacing: .newItem) {}
+            // The window is the settings, so ⌘, opens it, as in any Mac app.
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { delegate.showMainWindow() }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
         }
         // The window is exactly its contents, and changes size when they do.
         //
@@ -27,11 +38,41 @@ struct DockFixerApp: App {
 
         // The menu-bar item is what makes the app usable once the window is
         // closed — it has to stay running to catch a display being unplugged.
-        MenuBarExtra {
+        Window("DockFixer Log", id: Self.logWindowID) {
+            LogView(log: state.log)
+                .environmentObject(state)
+        }
+        .defaultSize(width: 860, height: 420)
+
+        MenuBarExtra(isInserted: Binding(get: { !state.hideMenuBarIcon },
+                                         set: { inserted in
+                                             // Only a real change. The scene writes this back on
+                                             // every update, and every write to a @Published
+                                             // property redraws the app, which writes it again:
+                                             // the main thread sat at 100% CPU and no timer ran.
+                                             if state.hideMenuBarIcon == inserted { state.hideMenuBarIcon = !inserted }
+                                         })) {
             MenuContent(delegate: delegate)
                 .environmentObject(state)
         } label: {
             MenuBarIcon(delegate: delegate)
+                .environmentObject(state)
+        }
+    }
+}
+
+/// Hands the delegate a way to rebuild the settings window, from inside it.
+///
+/// The menu-bar icon does the same, and was the only one doing it until the
+/// icon could be hidden: with it gone, nothing else could give the delegate an
+/// `openWindow`, which exists only in a view's environment.
+private struct WindowOpener: View {
+    let delegate: AppDelegate
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Color.clear.onAppear {
+            delegate.openMainWindow = { openWindow(id: DockFixerApp.mainWindowID) }
         }
     }
 }
@@ -44,10 +85,13 @@ struct DockFixerApp: App {
 /// `openWindow` is reachable from a view and nowhere else.
 private struct MenuBarIcon: View {
     let delegate: AppDelegate
+    @EnvironmentObject private var state: AppState
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Image(systemName: "macwindow")
+        // Without the grant nothing works, and the menu bar may be the only
+        // part of the app on screen, so that is where it has to show.
+        Image(systemName: state.isTrusted ? "macwindow" : "exclamationmark.triangle")
             .onAppear {
                 delegate.openMainWindow = { openWindow(id: DockFixerApp.mainWindowID) }
             }
@@ -77,9 +121,16 @@ private struct MenuContent: View {
 
         // Worded exactly as in the window: two names for one switch is two
         // things to learn.
-        Toggle("Move Windows Out From Under the Dock", isOn: $state.autoFixEnabled)
-        Toggle("Reclaim the Space the Dock Leaves Behind", isOn: $state.reclaimEnabled)
-            .disabled(!state.autoFixEnabled)
+        Section("Move Windows") {
+            Toggle("When a New Window Opens Under the Dock", isOn: $state.newWindowsEnabled)
+            Toggle("When the Dock Changes Size or Position", isOn: $state.dockChangesEnabled)
+            Toggle("When You Connect or Remove a Display", isOn: $state.displayChangesEnabled)
+            Toggle("Fill the Space the Dock Leaves Behind", isOn: $state.reclaimEnabled)
+                .disabled(!state.displayChangesEnabled)
+        }
+
+        Divider()
+
         Toggle("Launch at Login", isOn: $state.launchAtLogin)
 
         Divider()
@@ -144,7 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowClosed = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: nil, queue: .main
         ) { [weak self] note in
-            guard let window = note.object as? NSWindow, Self.isMainWindow(window) else { return }
+            guard let window = note.object as? NSWindow, Self.isAppWindow(window) else { return }
             // The window is still open at this point; decide once it is gone.
             DispatchQueue.main.async { self?.retreatToMenuBar() }
         }
@@ -299,19 +350,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// menu-bar item. Called once the last real window is gone: an entry in the
     /// switcher that switches to nothing visible is worse than no entry.
     private func retreatToMenuBar() {
-        guard !NSApp.windows.contains(where: { Self.isMainWindow($0) && $0.isVisible }) else { return }
+        guard !NSApp.windows.contains(where: { Self.isAppWindow($0) && $0.isVisible }) else { return }
         NSApp.setActivationPolicy(.accessory)
     }
 
-    /// The app's own window, as opposed to the panels AppKit and SwiftUI keep
-    /// around for the status item and other machinery. Those are not titled.
+    /// A window of the app's own — settings or log — as opposed to the panels
+    /// AppKit and SwiftUI keep around for the status item and other machinery.
+    /// Those are not titled.
     ///
     /// Titled is the whole test, and `canBecomeMain` must not be added to it:
     /// a SwiftUI `Window` that has been closed reports `canBecomeMain == false`
     /// while still sitting in `NSApp.windows`, so requiring it made the one
     /// window this needs to find invisible to it.
-    private static func isMainWindow(_ window: NSWindow) -> Bool {
+    private static func isAppWindow(_ window: NSWindow) -> Bool {
         window.styleMask.contains(.titled)
+    }
+
+    /// The settings window in particular: the one the app shows, hides and
+    /// withdraws at login. The log is only ever opened by hand.
+    private static func isMainWindow(_ window: NSWindow) -> Bool {
+        isAppWindow(window) && window.title == DockFixerApp.mainWindowTitle
     }
 
 }

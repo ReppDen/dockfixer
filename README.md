@@ -20,6 +20,11 @@ time, after every disconnect.
 DockFix does it in one press, or automatically whenever the display
 configuration changes.
 
+The same happens without any display change, too: an application that opens a
+window against a screen edge — Notes' Quick Note does — or restores a
+remembered frame puts it straight under the Dock. DockFix watches for new
+windows and pulls each one clear as it opens, leaving every other window alone.
+
 ## What it does
 
 ```

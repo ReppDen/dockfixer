@@ -151,7 +151,8 @@ struct ContentView: View {
                            Connecting or disconnecting a display makes macOS shuffle \
                            windows around, and some of them land underneath the Dock \
                            with their edges out of reach. This slides them back into \
-                           the usable area as soon as that happens.
+                           the usable area as soon as that happens — and does the same \
+                           for a new window that opens underneath it.
                            """)
 
             option(isOn: $state.reclaimEnabled,

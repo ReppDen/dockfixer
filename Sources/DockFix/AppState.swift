@@ -13,7 +13,7 @@ final class AppState: ObservableObject {
         didSet {
             guard oldValue != autoFixEnabled else { return }
             UserDefaults.standard.set(autoFixEnabled, forKey: Self.autoFixKey)
-            autoFixEnabled ? watcher?.start() : watcher?.stop()
+            autoFixEnabled ? startWatching() : stopWatching()
         }
     }
 
@@ -66,8 +66,13 @@ final class AppState: ObservableObject {
     private static let showLogsKey = "showLogs"
     /// How long to wait before repeating a pass that could not read the windows.
     private static let retryDelays: [TimeInterval] = [0.75, 1.5, 3]
+    /// How long a new window is left alone before it is checked. It is
+    /// announced the moment it exists, which is before its application has
+    /// finished placing and sizing it.
+    private static let newWindowDelay: TimeInterval = 0.3
     private let scanner = WindowScanner()
     private var watcher: DisplayWatcher?
+    private var windowWatcher: WindowWatcher?
     private var pollTimer: Timer?
     private var isSyncingLoginItem = false
 
@@ -108,6 +113,14 @@ final class AppState: ObservableObject {
             run(trigger: reason)
         }
 
+        windowWatcher = WindowWatcher(log: log) { [weak self] window, pid, appName in
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.newWindowDelay) {
+                MainActor.assumeIsolated {
+                    self?.fixNewWindow(window, pid: pid, appName: appName)
+                }
+            }
+        }
+
         Self.current = self
 
         refreshDisplays()
@@ -122,7 +135,7 @@ final class AppState: ObservableObject {
             WindowScanner.requestTrust()
         }
         if autoFixEnabled {
-            watcher?.start()
+            startWatching()
         }
 
         pollTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
@@ -168,6 +181,31 @@ final class AppState: ObservableObject {
     }
 
     // MARK: - Internals
+
+    private func startWatching() {
+        watcher?.start()
+        windowWatcher?.start()
+    }
+
+    private func stopWatching() {
+        watcher?.stop()
+        windowWatcher?.stop()
+    }
+
+    /// Not a pass: only the window that opened is looked at, so it neither
+    /// waits for one that is running nor uses up the layout a display change
+    /// left behind. Silent when the window was fine, which is nearly always.
+    private func fixNewWindow(_ window: AXUIElement, pid: pid_t, appName: String) {
+        guard isTrusted else { return }
+        scanner.run(window: window, pid: pid, appName: appName,
+                    debugDetail: log.isDebug) { [weak self] summary in
+            guard let self else { return }
+            record(summary)
+            if summary.candidates > 0 {
+                log.info("new window — \(summary.headline)")
+            }
+        }
+    }
 
     private func run(trigger: String, attempt: Int = 0) {
         guard isTrusted else {
@@ -272,6 +310,12 @@ final class AppState: ObservableObject {
         if trusted != isTrusted {
             isTrusted = trusted
             log.info("Accessibility access \(trusted ? "granted" : "revoked")")
+            // Observers cannot be registered without the grant, so the ones
+            // attempted before it was given all failed.
+            if trusted, autoFixEnabled {
+                windowWatcher?.stop()
+                windowWatcher?.start()
+            }
         }
 
         // Approving a login item happens in System Settings, outside the app.

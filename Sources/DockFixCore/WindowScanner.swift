@@ -143,6 +143,34 @@ public final class WindowScanner: Sendable {
         }
     }
 
+    /// The same correction for one window that has just opened.
+    ///
+    /// Nothing is reclaimed: the space the Dock leaves behind belongs to a
+    /// display change, and a new window was not being held anywhere by it.
+    /// Runs on the same queue as a whole pass, so the two never write to one
+    /// window at the same time.
+    @MainActor
+    public func run(window: AXUIElement,
+                    pid: pid_t,
+                    appName: String,
+                    debugDetail: Bool = false,
+                    completion: @escaping (ScanSummary) -> Void) {
+        let screens = ScreenMap.current()
+        let app = AppRef(pid: pid, name: appName)
+        queue.async { [weak self] in
+            guard let self else { return }
+            var summary = ScanSummary()
+            if AX.isTrusted {
+                summary.appsScanned = 1
+                summary.windowsSeen = 1
+                self.process(window: window, app: app, screens: screens,
+                             reclaim: [:], dryRun: false,
+                             debugDetail: debugDetail, into: &summary)
+            }
+            DispatchQueue.main.async { completion(summary) }
+        }
+    }
+
     @MainActor
     private static func regularApps() -> [AppRef] {
         let ownPID = ProcessInfo.processInfo.processIdentifier

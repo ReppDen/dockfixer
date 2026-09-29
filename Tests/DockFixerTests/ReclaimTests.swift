@@ -358,3 +358,56 @@ func reclaimAlwaysInside(_ t: TestRun) {
         }
     }
 }
+
+/// The Dock moving to another edge of the same display: one edge loses room,
+/// another gains it. Windows against the edge it left follow it; windows it
+/// now covers are pushed out, the ordinary way.
+func reclaimAcrossAnEdgeChange(_ t: TestRun) {
+    func check(_ name: String, from before: CGRect, to after: CGRect,
+               _ window: CGRect, _ expected: CGRect?) {
+        guard let space = space(before, after) else {
+            return t.fail("\(name): the Dock changing edge should be reclaimable")
+        }
+        let fix = computeFix(window: window, visible: after, reclaim: space)
+        t.expect(fix?.rect == expected,
+                 "\(name): want \(expected?.logDescription ?? "nil"), got \(fix?.rect.logDescription ?? "nil")")
+        // A second pass against the same change must leave it alone.
+        if let moved = fix?.rect {
+            let again = computeFix(window: moved, visible: after, reclaim: space)
+            t.expect(again == nil, "\(name): second pass moved it again to \(again?.rect.logDescription ?? "")")
+        }
+    }
+
+    // Right to bottom: the right edge frees 55, the bottom loses 62.
+    check("right → bottom, resting against the right edge",
+          from: withRightDock, to: withBottomDock,
+          CGRect(x: 545, y: 38, width: 400, height: 762), CGRect(x: 600, y: 38, width: 400, height: 700))
+    check("right → bottom, maximised",
+          from: withRightDock, to: withBottomDock,
+          withRightDock, withBottomDock)
+    check("right → bottom, floating",
+          from: withRightDock, to: withBottomDock,
+          CGRect(x: 200, y: 200, width: 300, height: 300), nil)
+
+    // Bottom to left: the bottom frees 62, the left loses 55.
+    check("bottom → left, resting on the bottom edge",
+          from: withBottomDock, to: withLeftDock,
+          CGRect(x: 300, y: 438, width: 400, height: 300), CGRect(x: 300, y: 500, width: 400, height: 300))
+    check("bottom → left, maximised",
+          from: withBottomDock, to: withLeftDock,
+          withBottomDock, withLeftDock)
+    check("bottom → left, against the left edge",
+          from: withBottomDock, to: withLeftDock,
+          CGRect(x: 0, y: 100, width: 400, height: 300), CGRect(x: 55, y: 100, width: 400, height: 300))
+
+    // Left to right, one axis: the left frees 55, the right loses 55.
+    check("left → right, resting against the left edge",
+          from: withLeftDock, to: withRightDock,
+          CGRect(x: 55, y: 100, width: 400, height: 300), CGRect(x: 0, y: 100, width: 400, height: 300))
+    check("left → right, maximised",
+          from: withLeftDock, to: withRightDock,
+          withLeftDock, withRightDock)
+    check("left → right, against the right edge",
+          from: withLeftDock, to: withRightDock,
+          CGRect(x: 600, y: 100, width: 400, height: 300), CGRect(x: 545, y: 100, width: 400, height: 300))
+}

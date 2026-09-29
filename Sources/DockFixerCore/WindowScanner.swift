@@ -368,6 +368,22 @@ public final class WindowScanner: Sendable {
 
     // MARK: - Applying
 
+    /// A size under `target` on each side that has to shrink, as the first of
+    /// two writes.
+    ///
+    /// A window as wide as the whole display could not be narrowed straight to
+    /// the width the Dock leaves: the write returned success and the window
+    /// stayed exactly where it was, in every application alike — Chrome,
+    /// Safari, Finder, PyCharm — so the limit is the system's, not theirs. The
+    /// same window narrowed further first and then widened to the target
+    /// landed on it. Only used on a retry, so windows that take the direct
+    /// write never see the extra step.
+    public static func stepBelow(_ target: CGSize, from current: CGSize) -> CGSize {
+        let margin: CGFloat = 50
+        return CGSize(width: target.width < current.width - 0.5 ? max(target.width - margin, 1) : target.width,
+                      height: target.height < current.height - 0.5 ? max(target.height - margin, 1) : target.height)
+    }
+
     private enum ApplyResult {
         case success
         case mismatch(actual: CGRect, attempts: Int)
@@ -384,6 +400,10 @@ public final class WindowScanner: Sendable {
         var lastRead: CGRect?
 
         for attempt in 1...maxAttempts {
+            if attempt > 1, let last = lastRead {
+                let below = Self.stepBelow(target.size, from: last.size)
+                if below != target.size { AX.setSize(window, below) }
+            }
             AX.setSize(window, target.size)
             AX.setPosition(window, target.origin)
             AX.setSize(window, target.size)

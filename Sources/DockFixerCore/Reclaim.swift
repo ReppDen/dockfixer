@@ -52,7 +52,9 @@ private let edgeEpsilon: CGFloat = 0.5
 ///
 /// - the display's size changed — a resolution switch scales everything, so a
 ///   difference in visible frames says nothing about the Dock;
-/// - any edge *lost* room — that is the Dock arriving, which the ordinary
+/// - the top edge *lost* room — a menu bar appeared, and nothing about the Dock
+///   can be read from that;
+/// - no Dock edge gained — that is only the Dock arriving, which the ordinary
 ///   `computeFix` path already handles;
 /// - only the top edge gained — the top inset is the menu bar, never the Dock,
 ///   the same reasoning as in `ScreenInfo.dockEdge`.
@@ -77,10 +79,15 @@ public func reclaimedSpace(previous: ScreenInfo,
                                visible: current.axVisibleFrame)
     let gainTop = space.previousVisible.minY - space.visible.minY
 
-    // No edge may have shrunk, including the top: a menu bar that appeared
-    // means this is not a Dock departure.
-    let gains = [space.gainLeft, space.gainRight, space.gainBottom, gainTop]
-    guard gains.allSatisfy({ $0 >= -edgeEpsilon }) else { return nil }
+    // A menu bar that appeared means this is not about the Dock.
+    guard gainTop >= -edgeEpsilon else { return nil }
+
+    // Dock edges may lose room at the same time as another one gains: that is
+    // the Dock moving from one edge to another. It used to rule the reclaim
+    // out, and windows left against the old edge stayed there with a gap
+    // beside them. Each axis is reclaimed on its own terms (`reclaimAxis`
+    // leaves an end that lost room alone) and the edge that lost room is
+    // cleared the usual way, by `computeFix`.
 
     // The top edge is the menu bar and never counts as reclaimable on its own.
     let dockGains = [space.gainLeft, space.gainRight, space.gainBottom]

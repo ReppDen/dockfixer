@@ -198,3 +198,16 @@ func geometryLogFormatting(_ t: TestRun) {
     t.expect(visibleLeftDock.maxX == screen.maxX, "reference usable area reaches the right screen edge")
     t.expect(visibleLeftDock.maxY == screen.maxY, "reference usable area reaches the bottom screen edge")
 }
+
+/// The first of two writes when a window would not shrink straight to its
+/// target: under the target on every side that shrinks, untouched elsewhere.
+func geometryStepBelow(_ t: TestRun) {
+    let narrower = WindowScanner.stepBelow(CGSize(width: 1469, height: 949), from: CGSize(width: 1512, height: 949))
+    t.expect(narrower == CGSize(width: 1419, height: 949), "narrowing goes under the width only, got \(narrower)")
+
+    let shorter = WindowScanner.stepBelow(CGSize(width: 1512, height: 892), from: CGSize(width: 1512, height: 949))
+    t.expect(shorter == CGSize(width: 1512, height: 842), "shortening goes under the height only, got \(shorter)")
+
+    let growing = WindowScanner.stepBelow(CGSize(width: 1512, height: 949), from: CGSize(width: 1469, height: 892))
+    t.expect(growing == CGSize(width: 1512, height: 949), "a window that only grows needs no extra step, got \(growing)")
+}

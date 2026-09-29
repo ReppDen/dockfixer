@@ -24,6 +24,8 @@ ZIP       := $(BUILD_DIR)/$(APP_NAME)-$(VERSION).zip
 
 ICONSET := $(BUILD_DIR)/AppIcon.iconset
 ICNS    := $(BUILD_DIR)/AppIcon.icns
+# Octicons' GitHub mark (MIT), kept as SVG and drawn to PDF at build time.
+GITHUB_MARK := $(BUILD_DIR)/github-mark.pdf
 
 DEV_IDENTITY := DockFixer Dev
 
@@ -59,13 +61,18 @@ $(ICNS): Scripts/make-icon.swift
 	iconutil -c icns "$(ICONSET)" -o "$(ICNS)"
 	@echo "built $(ICNS)"
 
+$(GITHUB_MARK): Resources/github-mark.svg Scripts/svg-to-pdf.swift
+	mkdir -p "$(BUILD_DIR)"
+	swift Scripts/svg-to-pdf.swift Resources/github-mark.svg "$(GITHUB_MARK)"
+
 ## app: build a release binary and wrap it in a .app bundle
-app: $(ICNS)
+app: $(ICNS) $(GITHUB_MARK)
 	swift build -c release
 	rm -rf "$(APP)"
 	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
 	cp "$$(swift build -c release --show-bin-path)/$(APP_NAME)" "$(APP)/Contents/MacOS/$(APP_NAME)"
 	cp "$(ICNS)" "$(APP)/Contents/Resources/AppIcon.icns"
+	cp "$(GITHUB_MARK)" "$(APP)/Contents/Resources/github-mark.pdf"
 	sed -e 's/__BUNDLE_ID__/$(BUNDLE_ID)/g' -e 's/__VERSION__/$(VERSION)/g' \
 		-e 's/__LOG_LEVEL__/$(LOG_LEVEL)/g' \
 		Resources/Info.plist > "$(APP)/Contents/Info.plist"

@@ -1,4 +1,4 @@
-import DockFixCore
+import DockFixerCore
 import SwiftUI
 
 /// A wide, softly filled button: the shape the controls in this window take.
@@ -94,7 +94,7 @@ struct ContentView: View {
     ///
     /// The Dock's whereabouts are the whole reason this app exists, so they are
     /// shown rather than described — it is also the fastest way to tell whether
-    /// DockFix is seeing the same layout you are.
+    /// DockFixer is seeing the same layout you are.
     private var screens: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(state.screens, id: \.displayID) { screen in

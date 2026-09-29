@@ -1,9 +1,9 @@
-# DockFix
+# DockFixer
 
 **Pulls macOS windows out from under the Dock.**
 
-[![CI](https://github.com/ReppDen/dockfix/actions/workflows/ci.yml/badge.svg)](https://github.com/ReppDen/dockfix/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/ReppDen/dockfix?sort=semver)](https://github.com/ReppDen/dockfix/releases/latest)
+[![CI](https://github.com/ReppDen/dockfixer/actions/workflows/ci.yml/badge.svg)](https://github.com/ReppDen/dockfixer/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/ReppDen/dockfixer?sort=semver)](https://github.com/ReppDen/dockfixer/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-lightgrey)
 
@@ -17,12 +17,12 @@ unreachable. macOS has no setting that makes the Dock an obstacle windows cannot
 cross, so the usual fix is dragging and resizing every window by hand, one at a
 time, after every disconnect.
 
-DockFix does it in one press, or automatically whenever the display
+DockFixer does it in one press, or automatically whenever the display
 configuration changes.
 
 The same happens without any display change, too: an application that opens a
 window against a screen edge — Notes' Quick Note does — or restores a
-remembered frame puts it straight under the Dock. DockFix watches for new
+remembered frame puts it straight under the Dock. DockFixer watches for new
 windows and pulls each one clear as it opens, leaving every other window alone.
 
 ## What it does
@@ -87,7 +87,7 @@ nothing.
 This has its own checkbox — **Reclaim the space the Dock leaves behind** — kept
 separate because it moves windows that nothing is currently overlapping, which
 is a bigger liberty than pulling a window out from under the Dock. Switch it off
-and DockFix only does the first half.
+and DockFixer only does the first half.
 
 It also needs to know where the Dock *was*, which only the display watcher
 records. With **Move windows out from under the Dock** switched off there is no
@@ -114,12 +114,12 @@ and moving or resizing the Dock triggers a pass of its own.
 ### From a release
 
 Download the latest `.zip` from
-[Releases](https://github.com/ReppDen/dockfix/releases/latest), then:
+[Releases](https://github.com/ReppDen/dockfixer/releases/latest), then:
 
 ```sh
-unzip DockFix-*.zip -d /Applications
-xattr -dr com.apple.quarantine /Applications/DockFix.app
-open /Applications/DockFix.app
+unzip DockFixer-*.zip -d /Applications
+xattr -dr com.apple.quarantine /Applications/DockFixer.app
+open /Applications/DockFixer.app
 ```
 
 The `xattr` line is required. Release builds are ad-hoc signed, not notarised
@@ -129,10 +129,10 @@ you to System Settings → Privacy & Security → *Open Anyway*.
 ### From source
 
 ```sh
-git clone https://github.com/ReppDen/dockfix.git
-cd dockfix
+git clone https://github.com/ReppDen/dockfixer.git
+cd dockfixer
 make dev        # builds, signs with a local identity, installs to /Applications
-open /Applications/DockFix.app
+open /Applications/DockFixer.app
 ```
 
 Locally built apps are never quarantined, so the `xattr` step does not apply.
@@ -145,39 +145,39 @@ for why that matters.
 ## First run
 
 Moving another application's window is only possible through the Accessibility
-API, so macOS requires explicit permission. DockFix asks on first launch. If you
-miss the prompt, press **Open Privacy Settings…** in the window, or add DockFix
+API, so macOS requires explicit permission. DockFixer asks on first launch. If you
+miss the prompt, press **Open Privacy Settings…** in the window, or add DockFixer
 yourself under
 System Settings → Privacy & Security → Accessibility.
 
-> **Always launch the bundle**, with `open /Applications/DockFix.app`, from
-> Finder, or from Spotlight — never by running `DockFix.app/Contents/MacOS/DockFix`
+> **Always launch the bundle**, with `open /Applications/DockFixer.app`, from
+> Finder, or from Spotlight — never by running `DockFixer.app/Contents/MacOS/DockFixer`
 > from a shell. macOS attributes Accessibility requests to the process
 > *responsible* for the launch, so a binary started from a terminal asks for the
-> **terminal's** access and leaves DockFix's own permission no longer matching.
-> That is also why DockFix has no command-line interface.
+> **terminal's** access and leaves DockFixer's own permission no longer matching.
+> That is also why DockFixer has no command-line interface.
 
 ## Usage
 
-DockFix has to be running when a display is unplugged, so switch on **Launch at
+DockFixer has to be running when a display is unplugged, so switch on **Launch at
 login** and forget about it — automatic correction is enabled by default.
 
 With its window open it is a normal application: Dock icon, app-switcher entry,
 menu bar. Closing the window does not quit — the watcher has to keep running —
 so it steps out of the way instead: the Dock icon and the ⌘⇥ entry disappear and
-only the menu-bar item is left. **Open DockFix…** in that menu brings the window,
+only the menu-bar item is left. **Open DockFixer…** in that menu brings the window,
 and the Dock icon, back. Quitting is explicit, from the button or ⌘Q.
 
 Started at login it goes straight to the menu bar without showing the window,
 since there is nothing to say. It may flash past on the way — macOS gives no way
-to ask why a process was started, so DockFix shows the window and withdraws it a
+to ask why a process was started, so DockFixer shows the window and withdraws it a
 moment later if nobody came for it. Opening it yourself always keeps it.
 
 The window opens as just its controls. **Show Logs** widens it to reveal the log
 pane, and the choice is remembered.
 
 The **Screens** section at the top lists every display with its size and what
-the Dock is doing on it, which is the quickest way to tell whether DockFix is
+the Dock is doing on it, which is the quickest way to tell whether DockFixer is
 seeing the same layout you are.
 
 | Control | What it does |
@@ -185,18 +185,18 @@ seeing the same layout you are.
 | **Fix Windows Now** | Runs a pass immediately. Also in the menu bar. |
 | **Move windows out from under the Dock** | Runs a pass whenever a display is connected or disconnected, or the Dock moves. On by default. |
 | **Reclaim the space the Dock leaves behind** | Stretches and slides windows into the band the Dock vacates when it moves to another display. On by default; needs the option above. |
-| **Launch at login** | Registers DockFix as a login item. macOS may ask you to allow it under System Settings → General → Login Items. |
+| **Launch at login** | Registers DockFixer as a login item. macOS may ask you to allow it under System Settings → General → Login Items. |
 | **Show Logs** | Reveals the log pane, and the buttons for copying and clearing it. Off by default. |
-| **Open DockFix…** *(menu bar)* | Brings the window back after it has been closed. |
+| **Open DockFixer…** *(menu bar)* | Brings the window back after it has been closed. |
 | **Quit** | Fully quits. |
 
-Opening DockFix yourself always shows the window. When launchd starts it at login
+Opening DockFixer yourself always shows the window. When launchd starts it at login
 and permission is already granted it comes up quietly instead, with just the two
 icons — there is nothing to report and nothing to do.
 
 An automatic pass does not fire the instant a display disappears. macOS sends the
 change notification several times in a burst, and WindowServer goes on relocating
-windows afterwards, so DockFix waits for the layout to stop changing before
+windows afterwards, so DockFixer waits for the layout to stop changing before
 acting.
 
 ## Logs
@@ -204,7 +204,7 @@ acting.
 Shown live in the window, and written to:
 
 ```
-~/Library/Logs/DockFix/dockfix.log
+~/Library/Logs/DockFixer/dockfixer.log
 ```
 
 ```
@@ -236,22 +236,22 @@ and the question is why, the counted-not-printed windows are exactly what has to
 be read. A release build logs at `INFO`; `make dev` builds at `DEBUG`, and the
 level is fixed in the bundle rather than in a preference, so which build is
 talkative is never in doubt. A binary run straight from the terminal, which has
-no bundle to read, takes `DOCKFIX_LOG_LEVEL=debug` from the environment instead.
+no bundle to read, takes `DOCKFIXER_LOG_LEVEL=debug` from the environment instead.
 
 ## Troubleshooting
 
-**The switch in System Settings is on, but DockFix says it has no access.**
+**The switch in System Settings is on, but DockFixer says it has no access.**
 A permission record left over from a previous build no longer matches the current
 one. Toggling the switch off and on does **not** help — that re-authorises the
-same stale record. Remove the DockFix row with the **−** button and grant it
+same stale record. Remove the DockFixer row with the **−** button and grant it
 again, or run:
 
 ```sh
-tccutil reset Accessibility com.github.reppden.dockfix
+tccutil reset Accessibility com.github.reppden.dockfixer
 ```
 
 **I granted access and nothing changed.** A process that has already been denied
-caches the answer. Quit DockFix and start it again.
+caches the answer. Quit DockFixer and start it again.
 
 **A window will not move.** Check the log. Fixed-size dialogs, some Java and Qt
 windows, and the Finder desktop cannot be moved through the Accessibility API at
@@ -264,7 +264,7 @@ all; these are reported as `SKIP` or `FAIL` rather than being retried forever.
 - **Other Spaces.** The Accessibility API only reports windows on the current
   Space, so windows parked on another desktop are neither listed nor moved.
   Working around this requires disabling System Integrity Protection, which
-  DockFix will not ask you to do. Switch to that Space and press **Fix Windows
+  DockFixer will not ask you to do. Switch to that Space and press **Fix Windows
   Now**.
 - **Not notarised.** Release builds are ad-hoc signed, so the first launch needs
   the `xattr` command above, and the Accessibility permission has to be granted
@@ -278,7 +278,7 @@ all; these are reported as `SKIP` or `FAIL` rather than being retried forever.
 ## Development
 
 ```sh
-make            # build build/DockFix.app
+make            # build build/DockFixer.app
 make dev        # build signed with a local identity and install to /Applications
 make dev-cert   # create that local signing identity on its own
 make run        # build and launch from build/
@@ -296,14 +296,14 @@ make help       # list targets
 
 | Path | Contents |
 | --- | --- |
-| `Sources/DockFixCore/Geometry.swift` | The correction rule. Pure functions, no system calls — where the behaviour is decided and tested. |
-| `Sources/DockFixCore/ScreenMap.swift` | Converts `NSScreen` rects into the Accessibility API's coordinate space. |
-| `Sources/DockFixCore/AX.swift` | Wrappers over the C Accessibility API. |
-| `Sources/DockFixCore/WindowScanner.swift` | Enumerates windows, applies corrections, verifies they stuck. |
-| `Sources/DockFixCore/DisplayWatcher.swift` | Display-change detection and settling. |
-| `Sources/DockFixCore/Log.swift` | File log and the in-memory buffer the window renders. |
-| `Sources/DockFix/` | SwiftUI window, menu-bar item, app state. |
-| `Tests/DockFixTests/` | Unit tests. |
+| `Sources/DockFixerCore/Geometry.swift` | The correction rule. Pure functions, no system calls — where the behaviour is decided and tested. |
+| `Sources/DockFixerCore/ScreenMap.swift` | Converts `NSScreen` rects into the Accessibility API's coordinate space. |
+| `Sources/DockFixerCore/AX.swift` | Wrappers over the C Accessibility API. |
+| `Sources/DockFixerCore/WindowScanner.swift` | Enumerates windows, applies corrections, verifies they stuck. |
+| `Sources/DockFixerCore/DisplayWatcher.swift` | Display-change detection and settling. |
+| `Sources/DockFixerCore/Log.swift` | File log and the in-memory buffer the window renders. |
+| `Sources/DockFixer/` | SwiftUI window, menu-bar item, app state. |
+| `Tests/DockFixerTests/` | Unit tests. |
 | `Scripts/make-icon.swift` | Draws the app icon, so no binary artwork is committed. |
 | `Scripts/dev-cert.sh` | Creates the local code-signing identity. |
 
@@ -312,7 +312,7 @@ make help       # list targets
 - **Tests are a plain executable**, run with `make test`, not `swift test`. On
   macOS `swift test` packages tests as an XCTest bundle, and XCTest ships with
   Xcode — this project is meant to build and test with the Command Line Tools
-  alone. `Tests/DockFixTests/Harness.swift` is the whole framework.
+  alone. `Tests/DockFixerTests/Harness.swift` is the whole framework.
 - **All window geometry is in Accessibility coordinates**: origin at the top-left
   of the primary display, y growing *downwards*. `NSScreen` uses the opposite
   vertical convention. The conversion happens once, in `ScreenMap`. Mixing the two
@@ -334,11 +334,11 @@ reads as a bug in the app rather than a stale record.
 giving a designated requirement based on the certificate instead:
 
 ```
-designated => identifier "com.github.reppden.dockfix" and certificate leaf = H"…"
+designated => identifier "com.github.reppden.dockfixer" and certificate leaf = H"…"
 ```
 
 That is stable across rebuilds, so the permission is granted once. The
-certificate lives in its own keychain (`dockfix-dev.keychain`) with a known
+certificate lives in its own keychain (`dockfixer-dev.keychain`) with a known
 password so nothing prompts, and it is only used locally — releases stay ad-hoc
 signed.
 
@@ -346,7 +346,7 @@ signed.
 build it fails with `No such bundle identifier`, because the record is keyed by
 the code hash rather than the bundle identifier.
 
-A denied process also caches the answer, so after granting access DockFix has to
+A denied process also caches the answer, so after granting access DockFixer has to
 be restarted before it notices.
 
 ## Contributing
@@ -356,7 +356,7 @@ Issues and pull requests are welcome.
 - Run `make test` before opening a pull request; CI runs the same thing.
 - Keep behaviour changes in `Geometry.swift` covered by a case in the test table.
 - If a specific application misbehaves, please include the relevant `SKIP` or
-  `FAIL` lines from `~/Library/Logs/DockFix/dockfix.log` — they carry the window
+  `FAIL` lines from `~/Library/Logs/DockFixer/dockfixer.log` — they carry the window
   geometry and the reason.
 
 ## License

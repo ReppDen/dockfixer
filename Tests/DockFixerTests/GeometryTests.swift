@@ -1,5 +1,5 @@
 import CoreGraphics
-import DockFixCore
+import DockFixerCore
 
 // All coordinates are in Accessibility space: origin top-left of the primary
 // display, y growing downwards.

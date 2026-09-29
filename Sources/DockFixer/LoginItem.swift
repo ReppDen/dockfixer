@@ -1,6 +1,6 @@
 import ServiceManagement
 
-/// Registers DockFix to start at login.
+/// Registers DockFixer to start at login.
 ///
 /// The automatic pass only helps if the app is running when a display is
 /// unplugged, so for this tool starting at login is the difference between

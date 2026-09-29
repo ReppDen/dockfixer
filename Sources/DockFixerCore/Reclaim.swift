@@ -7,7 +7,7 @@ import CoreGraphics
 /// thickness. Windows do not follow, and a strip of wallpaper exactly that wide
 /// is left behind.
 ///
-/// As everywhere else in DockFix the Dock is never asked where it is or how big
+/// As everywhere else in DockFixer the Dock is never asked where it is or how big
 /// it was — the reclaimed space is the difference between the display's old and
 /// new visible frames.
 public struct ReclaimedSpace: Equatable, Sendable {

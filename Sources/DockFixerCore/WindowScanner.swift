@@ -95,7 +95,7 @@ public final class WindowScanner: Sendable {
     /// the requested rect. Some applications round to their own grid.
     private let tolerance: CGFloat = 2
     private let maxAttempts = 3
-    private let queue = DispatchQueue(label: "com.github.reppden.dockfix.scanner", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "com.github.reppden.dockfixer.scanner", qos: .userInitiated)
 
     public init() {}
 
@@ -196,7 +196,7 @@ public final class WindowScanner: Sendable {
 
         guard AX.isTrusted else {
             summary.outcomes.append(WindowOutcome(
-                app: "DockFix", title: "",
+                app: "DockFixer", title: "",
                 level: .fail,
                 detail: "Accessibility access not granted — cannot see or move windows"))
             return summary
@@ -204,23 +204,23 @@ public final class WindowScanner: Sendable {
 
         let reclaim = previousScreens.map { reclaims(previous: $0, current: screens) } ?? [:]
         if debugDetail {
-            note("DockFix", "", "pass — dry run: \(dryRun), previous layout: \(previousScreens == nil ? "none" : "known")")
+            note("DockFixer", "", "pass — dry run: \(dryRun), previous layout: \(previousScreens == nil ? "none" : "known")")
             for screen in screens {
-                note("DockFix", "", "now  \(Self.describe(screen))")
+                note("DockFixer", "", "now  \(Self.describe(screen))")
             }
             for screen in previousScreens ?? [] {
-                note("DockFix", "", "was  \(Self.describe(screen))")
+                note("DockFixer", "", "was  \(Self.describe(screen))")
             }
             // Why a display is not in the reclaim map is the question the whole
             // feature turns on, and the numbers above are what answers it.
             for screen in screens where reclaim[screen.displayID] == nil {
-                note("DockFix", "", "no reclaim on \(screen.localizedName)")
+                note("DockFixer", "", "no reclaim on \(screen.localizedName)")
             }
         }
         for screen in screens {
             guard let space = reclaim[screen.displayID] else { continue }
             summary.outcomes.append(WindowOutcome(
-                app: "DockFix", title: "", level: .info,
+                app: "DockFixer", title: "", level: .info,
                 detail: "\(screen.localizedName) regained \(space.edgeDescription)"))
         }
 

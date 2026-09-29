@@ -1,15 +1,15 @@
-import DockFixCore
+import DockFixerCore
 import SwiftUI
 
 @main
-struct DockFixApp: App {
+struct DockFixerApp: App {
     static let mainWindowID = "main"
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var state = AppState()
 
     var body: some Scene {
-        Window("DockFix", id: Self.mainWindowID) {
+        Window("DockFixer", id: Self.mainWindowID) {
             ContentView(log: state.log)
                 .environmentObject(state)
         }
@@ -49,7 +49,7 @@ private struct MenuBarIcon: View {
     var body: some View {
         Image(systemName: "macwindow")
             .onAppear {
-                delegate.openMainWindow = { openWindow(id: DockFixApp.mainWindowID) }
+                delegate.openMainWindow = { openWindow(id: DockFixerApp.mainWindowID) }
             }
     }
 }
@@ -84,7 +84,7 @@ private struct MenuContent: View {
 
         Divider()
 
-        Button("Open DockFix…") {
+        Button("Open DockFixer…") {
             // Two things matter here, and both were wrong before.
             //
             // Not `openWindow` directly: the app is an accessory at this point
@@ -97,7 +97,7 @@ private struct MenuContent: View {
             // has closed and the run loop is back in its normal mode. Belt and
             // braces — the fault here was the nil delegate above, not this — but
             // deferring costs nothing.
-            let open = { openWindow(id: DockFixApp.mainWindowID) }
+            let open = { openWindow(id: DockFixerApp.mainWindowID) }
             DispatchQueue.main.async {
                 delegate.openMainWindow = open
                 delegate.showMainWindow()
@@ -106,7 +106,7 @@ private struct MenuContent: View {
 
         Divider()
 
-        Button("Quit DockFix") { state.quit() }
+        Button("Quit DockFixer") { state.quit() }
             .keyboardShortcut("q")
     }
 }
@@ -130,8 +130,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     //
     // Starting the binary from a shell instead of launching the bundle makes
     // macOS attribute Accessibility requests to the *responsible process* — the
-    // terminal emulator — rather than to DockFix. The prompt then asks for the
-    // terminal, the request is recorded against it, and DockFix's own grant stops
+    // terminal emulator — rather than to DockFixer. The prompt then asks for the
+    // terminal, the request is recorded against it, and DockFixer's own grant stops
     // matching. Debugging that cost several rounds; see todo_permissions.md.
     //
     // Everything is driven from the window and the menu-bar item instead.

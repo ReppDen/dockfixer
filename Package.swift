@@ -7,24 +7,24 @@ import PackageDescription
 // tests are a plain executable with a tiny hand-rolled harness — run it with
 // `make test`.
 let package = Package(
-    name: "DockFix",
+    name: "DockFixer",
     platforms: [.macOS(.v14)],
     targets: [
         // Everything except the @main entry point lives here so the test
         // runner can import it.
         .target(
-            name: "DockFixCore",
-            path: "Sources/DockFixCore"
+            name: "DockFixerCore",
+            path: "Sources/DockFixerCore"
         ),
         .executableTarget(
-            name: "DockFix",
-            dependencies: ["DockFixCore"],
-            path: "Sources/DockFix"
+            name: "DockFixer",
+            dependencies: ["DockFixerCore"],
+            path: "Sources/DockFixer"
         ),
         .executableTarget(
-            name: "DockFixTests",
-            dependencies: ["DockFixCore"],
-            path: "Tests/DockFixTests"
+            name: "DockFixerTests",
+            dependencies: ["DockFixerCore"],
+            path: "Tests/DockFixerTests"
         ),
     ]
 )

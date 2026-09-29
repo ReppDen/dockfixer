@@ -1,5 +1,5 @@
-APP_NAME  := DockFix
-BUNDLE_ID := com.github.reppden.dockfix
+APP_NAME  := DockFixer
+BUNDLE_ID := com.github.reppden.dockfixer
 VERSION   := 0.1.0
 
 # "-" means an ad-hoc signature, which is all a release build needs. macOS ties
@@ -8,7 +8,7 @@ VERSION   := 0.1.0
 # this at a self-signed code-signing certificate to get a stable identity and
 # keep the grant across rebuilds:
 #
-#   make app SIGN_IDENTITY="DockFix Dev"
+#   make app SIGN_IDENTITY="DockFixer Dev"
 #
 # See the Development section of the README for creating that certificate.
 SIGN_IDENTITY ?= -
@@ -25,7 +25,7 @@ ZIP       := $(BUILD_DIR)/$(APP_NAME)-$(VERSION).zip
 ICONSET := $(BUILD_DIR)/AppIcon.iconset
 ICNS    := $(BUILD_DIR)/AppIcon.icns
 
-DEV_IDENTITY := DockFix Dev
+DEV_IDENTITY := DockFixer Dev
 
 .PHONY: all app icon run test install uninstall dev dev-cert reset-tcc zip clean help
 
@@ -78,7 +78,7 @@ run: app
 
 ## test: run the unit tests (plain executable — no Xcode needed)
 test:
-	swift run DockFixTests
+	swift run DockFixerTests
 
 ## install: copy the bundle into /Applications
 install: app

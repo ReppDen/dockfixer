@@ -1,6 +1,6 @@
 import AppKit
 import Combine
-import DockFixCore
+import DockFixerCore
 import SwiftUI
 
 /// Glue between the window and the scanner.
@@ -124,12 +124,12 @@ final class AppState: ObservableObject {
         Self.current = self
 
         refreshDisplays()
-        log.info("DockFix ready — \(displaysSummary)")
+        log.info("DockFixer ready — \(displaysSummary)")
         log.info("launch at login: \(LoginItem.statusDescription)")
         log.info("follow the Dock off a display: \(reclaimEnabled ? "enabled" : "disabled")")
 
         if !isTrusted {
-            log.info("Accessibility access not granted yet; approve DockFix in the system prompt, or press Grant")
+            log.info("Accessibility access not granted yet; approve DockFixer in the system prompt, or press Grant")
             // Ask straight away rather than at the first button press: the grant
             // has to be in place before anything useful can happen.
             WindowScanner.requestTrust()
@@ -153,7 +153,7 @@ final class AppState: ObservableObject {
 
     func requestAccessibility() {
         WindowScanner.requestTrust()
-        log.info("Accessibility prompt requested — grant DockFix in System Settings, then come back")
+        log.info("Accessibility prompt requested — grant DockFixer in System Settings, then come back")
         // The System Settings pane, in case the prompt was dismissed earlier and
         // will not appear again.
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
@@ -209,7 +209,7 @@ final class AppState: ObservableObject {
 
     private func run(trigger: String, attempt: Int = 0) {
         guard isTrusted else {
-            log.add(level: .fail, app: "DockFix", title: "",
+            log.add(level: .fail, app: "DockFixer", title: "",
                     detail: "cannot scan windows without Accessibility access")
             requestAccessibility()
             return
@@ -334,7 +334,7 @@ final class AppState: ObservableObject {
             try LoginItem.set(launchAtLogin)
             log.info("launch at login: \(LoginItem.statusDescription)")
         } catch {
-            log.add(level: .fail, app: "DockFix", title: "",
+            log.add(level: .fail, app: "DockFixer", title: "",
                     detail: "could not \(launchAtLogin ? "enable" : "disable") launch at login: \(error.localizedDescription)")
             isSyncingLoginItem = true
             launchAtLogin = LoginItem.isEnabled

@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>DockFix</string>
+	<string>DockFixer</string>
 	<key>CFBundleDisplayName</key>
-	<string>DockFix</string>
+	<string>DockFixer</string>
 	<key>CFBundleIdentifier</key>
 	<string>__BUNDLE_ID__</string>
 	<key>CFBundleExecutable</key>
-	<string>DockFix</string>
+	<string>DockFixer</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -32,9 +32,9 @@
 	     happened. "make dev" substitutes "debug", which adds a line per window
 	     per pass — far too much to read casually, and exactly what is wanted
 	     when a pass did nothing and the question is why. -->
-	<key>DockFixLogLevel</key>
+	<key>DockFixerLogLevel</key>
 	<string>__LOG_LEVEL__</string>
-	<!-- Deliberately not LSUIElement: with its window open DockFix is a normal
+	<!-- Deliberately not LSUIElement: with its window open DockFixer is a normal
 	     application, with a Dock icon and an entry in the app switcher. Closing
 	     the window does not quit it — the watcher has to keep running — so it
 	     drops to .accessory at that point and lives in the menu bar alone, since

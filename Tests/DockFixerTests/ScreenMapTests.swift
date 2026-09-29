@@ -1,5 +1,5 @@
 import CoreGraphics
-import DockFixCore
+import DockFixerCore
 
 // Only the pure parts are covered here: converting between Cocoa's bottom-left
 // origin and the Accessibility API's top-left origin, and picking the display a

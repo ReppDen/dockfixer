@@ -31,16 +31,16 @@ jobs:
         with:
           files: ${{ steps.sum.outputs.file }}
           body: |
-            DockFix ${{ github.ref_name }}
+            DockFixer ${{ github.ref_name }}
 
             SHA-256: `${{ steps.sum.outputs.sha }}`
 
             This build is ad-hoc signed, not notarised. After downloading:
 
             ```sh
-            unzip DockFix-*.zip -d /Applications
-            xattr -dr com.apple.quarantine /Applications/DockFix.app
-            open /Applications/DockFix.app
+            unzip DockFixer-*.zip -d /Applications
+            xattr -dr com.apple.quarantine /Applications/DockFixer.app
+            open /Applications/DockFixer.app
             ```
 
             Then grant Accessibility access in

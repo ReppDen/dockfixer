@@ -55,7 +55,7 @@ public final class Log: ObservableObject {
 
     private let bufferLimit = 500
     private let rotateAtBytes = 5 * 1024 * 1024
-    private let ioQueue = DispatchQueue(label: "com.github.reppden.dockfix.log", qos: .utility)
+    private let ioQueue = DispatchQueue(label: "com.github.reppden.dockfixer.log", qos: .utility)
     private var handle: FileHandle?
 
     private static let lineTime: DateFormatter = {
@@ -70,13 +70,13 @@ public final class Log: ObservableObject {
         return f
     }()
 
-    /// The configured level, lowest first. `debug` comes from `DockFixLogLevel`
+    /// The configured level, lowest first. `debug` comes from `DockFixerLogLevel`
     /// in the bundle — `make dev` sets it, a release build leaves it at `info`
-    /// — or from `DOCKFIX_LOG_LEVEL` for a binary run straight from the
+    /// — or from `DOCKFIXER_LOG_LEVEL` for a binary run straight from the
     /// terminal, which has no bundle to read.
     public static func configuredLevel() -> LogLevel {
-        let raw = ProcessInfo.processInfo.environment["DOCKFIX_LOG_LEVEL"]
-            ?? Bundle.main.object(forInfoDictionaryKey: "DockFixLogLevel") as? String
+        let raw = ProcessInfo.processInfo.environment["DOCKFIXER_LOG_LEVEL"]
+            ?? Bundle.main.object(forInfoDictionaryKey: "DockFixerLogLevel") as? String
         // Anything unrecognised, the unsubstituted placeholder included, means
         // the quiet level: extra logging is opted into, never fallen into.
         return raw?.lowercased() == "debug" ? .debug : .info
@@ -86,15 +86,15 @@ public final class Log: ObservableObject {
         isDebug = (level ?? Self.configuredLevel()) == .debug
         let dir = directory ?? FileManager.default
             .homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/DockFix", isDirectory: true)
-        fileURL = dir.appendingPathComponent("dockfix.log")
+            .appendingPathComponent("Library/Logs/DockFixer", isDirectory: true)
+        fileURL = dir.appendingPathComponent("dockfixer.log")
 
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         rotateIfNeeded()
         openHandle()
 
         let stamp = Self.sessionHeaderTime.string(from: Date())
-        appendToFile("\n=== DockFix session started \(stamp)\(isDebug ? " (debug logging)" : "") ===\n")
+        appendToFile("\n=== DockFixer session started \(stamp)\(isDebug ? " (debug logging)" : "") ===\n")
     }
 
     // MARK: - Writing

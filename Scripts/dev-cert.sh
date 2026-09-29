@@ -14,10 +14,10 @@
 # signed.
 set -euo pipefail
 
-CN="${DEV_CERT_NAME:-DockFix Dev}"
-KEYCHAIN="dockfix-dev.keychain"
-KEYCHAIN_PASS="dockfix"
-P12_PASS="dockfix"
+CN="${DEV_CERT_NAME:-DockFixer Dev}"
+KEYCHAIN="dockfixer-dev.keychain"
+KEYCHAIN_PASS="dockfixer"
+P12_PASS="dockfixer"
 
 # The system LibreSSL, deliberately not whatever openssl is first on PATH:
 # OpenSSL 3 writes PKCS#12 files with algorithms the macOS Security framework

@@ -22,5 +22,5 @@ jobs:
 
       - name: Check the bundle is signed and complete
         run: |
-          codesign --verify --verbose=2 build/DockFix.app
-          /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' build/DockFix.app/Contents/Info.plist
+          codesign --verify --verbose=2 build/DockFixer.app
+          /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' build/DockFixer.app/Contents/Info.plist

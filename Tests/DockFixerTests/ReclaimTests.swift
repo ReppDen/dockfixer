@@ -1,5 +1,5 @@
 import CoreGraphics
-import DockFixCore
+import DockFixerCore
 
 // Same reference screen as GeometryTests: 1000x800, 38pt menu bar, 55pt Dock.
 // Here the Dock is *leaving*, so the "previous" visible frame is the narrow one

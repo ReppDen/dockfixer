@@ -1,7 +1,8 @@
 #!/usr/bin/env swift
 
 // Draws the app icon as a 1024pt PNG. The Makefile scales it into an iconset and
-// runs iconutil, so no binary artwork is checked into the repository.
+// runs iconutil. This script is the icon's source; docs/icon.png is only a
+// rendered copy for the README (`make readme-icon`).
 //
 // Usage: swift Scripts/make-icon.swift <output.png>
 

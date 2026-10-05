@@ -4,8 +4,8 @@ DockFixer includes the following third-party material.
 
 ## Octicons — GitHub mark
 
-`Resources/github-mark.svg`, shown on the GitHub button and bundled in the app
-as `github-mark.pdf`, is the `mark-github-16` icon from
+`Resources/github-mark.pdf`, shown on the GitHub button, is the `mark-github-16`
+icon from
 [Octicons](https://github.com/primer/octicons).
 
 The GitHub logo is a trademark of GitHub, Inc., used here only to link to this

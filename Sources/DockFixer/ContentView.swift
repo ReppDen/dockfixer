@@ -314,7 +314,7 @@ struct ContentView: View {
     }
 
     /// SF Symbols has no brand marks, so GitHub's own comes from Octicons (MIT),
-    /// bundled as a PDF by the Makefile. A template image, so it takes the
+    /// bundled as a PDF. A template image, so it takes the
     /// label's colour in light and dark alike.
     private static var githubMark: some View {
         let image = Bundle.main.image(forResource: "github-mark") ?? NSImage()

@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/icon.png" width="128" height="128" alt="DockFixer icon"></p>
+
 # DockFixer
 
 **Pulls macOS windows out from under the Dock.**
@@ -326,9 +328,9 @@ make help       # list targets
 | `Sources/DockFixerCore/Log.swift` | File log and the in-memory buffer the window renders. |
 | `Sources/DockFixer/` | SwiftUI window, menu-bar item, app state. |
 | `Tests/DockFixerTests/` | Unit tests. |
-| `Scripts/make-icon.swift` | Draws the app icon, so no binary artwork is committed. |
+| `Scripts/make-icon.swift` | Draws the app icon — its source. `docs/icon.png` is a rendered copy for this README (`make readme-icon`). |
 | `Scripts/dev-cert.sh` | Creates the local code-signing identity. |
-| `Scripts/svg-to-pdf.swift`, `Resources/github-mark.svg` | The GitHub mark on the GitHub button, kept as SVG and drawn to PDF at build time. |
+| `Resources/github-mark.pdf` | The GitHub mark on the GitHub button, from Octicons. |
 
 ### Notes for contributors
 

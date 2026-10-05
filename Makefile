@@ -24,12 +24,10 @@ ZIP       := $(BUILD_DIR)/$(APP_NAME)-$(VERSION).zip
 
 ICONSET := $(BUILD_DIR)/AppIcon.iconset
 ICNS    := $(BUILD_DIR)/AppIcon.icns
-# Octicons' GitHub mark (MIT), kept as SVG and drawn to PDF at build time.
-GITHUB_MARK := $(BUILD_DIR)/github-mark.pdf
 
 DEV_IDENTITY := DockFixer Dev
 
-.PHONY: all app icon run test install uninstall dev dev-cert reset-tcc zip clean help
+.PHONY: all app icon readme-icon run test install uninstall dev dev-cert reset-tcc zip clean help
 
 all: app
 
@@ -43,6 +41,11 @@ dev: dev-cert
 
 ## icon: draw the app icon and build AppIcon.icns
 icon: $(ICNS)
+
+## readme-icon: redraw docs/icon.png, the copy of the icon the README shows
+readme-icon: $(ICNS)
+	sips -z 512 512 "$(BUILD_DIR)/icon-1024.png" --out docs/icon.png >/dev/null
+	@echo "wrote docs/icon.png"
 
 $(ICNS): Scripts/make-icon.swift
 	mkdir -p "$(ICONSET)"
@@ -61,18 +64,15 @@ $(ICNS): Scripts/make-icon.swift
 	iconutil -c icns "$(ICONSET)" -o "$(ICNS)"
 	@echo "built $(ICNS)"
 
-$(GITHUB_MARK): Resources/github-mark.svg Scripts/svg-to-pdf.swift
-	mkdir -p "$(BUILD_DIR)"
-	swift Scripts/svg-to-pdf.swift Resources/github-mark.svg "$(GITHUB_MARK)"
-
 ## app: build a release binary and wrap it in a .app bundle
-app: $(ICNS) $(GITHUB_MARK)
+app: $(ICNS)
 	swift build -c release
 	rm -rf "$(APP)"
 	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
 	cp "$$(swift build -c release --show-bin-path)/$(APP_NAME)" "$(APP)/Contents/MacOS/$(APP_NAME)"
 	cp "$(ICNS)" "$(APP)/Contents/Resources/AppIcon.icns"
-	cp "$(GITHUB_MARK)" "$(APP)/Contents/Resources/github-mark.pdf"
+	# Octicons' GitHub mark (MIT), for the GitHub button.
+	cp Resources/github-mark.pdf "$(APP)/Contents/Resources/github-mark.pdf"
 	sed -e 's/__BUNDLE_ID__/$(BUNDLE_ID)/g' -e 's/__VERSION__/$(VERSION)/g' \
 		-e 's/__LOG_LEVEL__/$(LOG_LEVEL)/g' \
 		Resources/Info.plist > "$(APP)/Contents/Info.plist"

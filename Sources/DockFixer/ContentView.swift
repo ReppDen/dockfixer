@@ -146,9 +146,7 @@ struct ContentView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Image(nsImage: NSApp.applicationIconImage)
-                .resizable()
-                .frame(width: 48, height: 48)
+            AppIconView(size: 48)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text("DockFixer")

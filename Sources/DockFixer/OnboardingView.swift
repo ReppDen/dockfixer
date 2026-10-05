@@ -16,9 +16,7 @@ struct OnboardingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .center, spacing: 14) {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
-                    .frame(width: 56, height: 56)
+                AppIconView(size: 56)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("DockFixer needs Accessibility access")
                         .font(.system(size: 15, weight: .semibold))

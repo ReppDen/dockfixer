@@ -146,3 +146,58 @@ public func classifyLayoutChange(previous: [ScreenInfo], current: [ScreenInfo]) 
     let after = Dictionary(current.map { ($0.displayID, $0.axFrame) }, uniquingKeysWith: { a, _ in a })
     return before == after ? .dock : .displays
 }
+
+/// How far the Dock may grow or shrink, in points, before windows are moved
+/// for it.
+///
+/// A Dock on the side of a display changes its thickness by a point or two
+/// whenever an application opens or quits, because it scales its icons to fit
+/// them all. Following every such change moved every window that touches the
+/// Dock by a point, twenty times a day — and after an unlock macOS reports a
+/// Dock of the wrong size for a couple of seconds, so windows went one way and
+/// came back. A strip this thin under the Dock is not worth a visible jolt.
+///
+/// The same allowance applies in both directions, which is what keeps windows
+/// from creeping: a change is measured against the layout windows were last
+/// arranged for, not against the previous reading, so small steps add up and
+/// are acted on together once they pass the threshold. A window that overlaps
+/// the usable area by no more than this is left alone too (`computeFix`), so a
+/// Dock that is a few points thicker than the last arrangement does not get
+/// windows pushed by the next pass either.
+public let dockNoise: CGFloat = 4
+
+/// The furthest any edge of a visible frame moved between two layouts, over
+/// the displays present in both.
+///
+/// Only meaningful for a Dock change (`classifyLayoutChange` returned `.dock`):
+/// for anything else the frames themselves moved, and the answer would be the
+/// distance the display moved.
+public func largestEdgeShift(previous: [ScreenInfo], current: [ScreenInfo]) -> CGFloat {
+    var before: [CGDirectDisplayID: CGRect] = [:]
+    for screen in previous { before[screen.displayID] = screen.axVisibleFrame }
+
+    var largest: CGFloat = 0
+    for screen in current {
+        guard let old = before[screen.displayID] else { continue }
+        let new = screen.axVisibleFrame
+        largest = max(largest,
+                      abs(new.minX - old.minX), abs(new.maxX - old.maxX),
+                      abs(new.minY - old.minY), abs(new.maxY - old.maxY))
+    }
+    return largest
+}
+
+/// What the Dock did, in words for the log: `DELL U2722D left 54pt → left 55pt`.
+/// Displays whose visible frame did not change are left out.
+public func describeDockChange(previous: [ScreenInfo], current: [ScreenInfo]) -> String {
+    var before: [CGDirectDisplayID: ScreenInfo] = [:]
+    for screen in previous { before[screen.displayID] = screen }
+
+    let changes = current.compactMap { screen -> String? in
+        guard let old = before[screen.displayID],
+              old.axVisibleFrame != screen.axVisibleFrame
+        else { return nil }
+        return "\(screen.localizedName) \(old.dockEdge) → \(screen.dockEdge)"
+    }
+    return changes.isEmpty ? "no visible frame changed" : changes.joined(separator: ", ")
+}

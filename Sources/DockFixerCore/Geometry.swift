@@ -74,8 +74,15 @@ private func clamp(_ rect: CGRect, into visible: CGRect) -> (rect: CGRect, clamp
 /// the menu bar, whichever edges they occupy, and collapses to nearly the full
 /// screen when the Dock is set to auto-hide. That is why no Dock orientation or
 /// tile size is consulted anywhere in this file.
-public func computeFix(window: CGRect, visible: CGRect, tolerance: CGFloat = 0.5) -> WindowFix? {
-    computeFix(window: window, visible: visible, reclaim: nil, tolerance: tolerance)
+///
+/// `slack` is how far a window may stick out of `visible` and still be left
+/// where it is — see `dockNoise`. A window that sticks out further is brought
+/// all the way in, not just to within `slack`.
+public func computeFix(window: CGRect,
+                       visible: CGRect,
+                       slack: CGFloat = 0,
+                       tolerance: CGFloat = 0.5) -> WindowFix? {
+    computeFix(window: window, visible: visible, reclaim: nil, slack: slack, tolerance: tolerance)
 }
 
 /// The same correction, plus the space the display regained because the Dock
@@ -89,12 +96,20 @@ public func computeFix(window: CGRect, visible: CGRect, tolerance: CGFloat = 0.5
 public func computeFix(window: CGRect,
                        visible: CGRect,
                        reclaim: ReclaimedSpace?,
+                       slack: CGFloat = 0,
                        tolerance: CGFloat = 0.5) -> WindowFix? {
     guard window.width > 0, window.height > 0,
           visible.width > 0, visible.height > 0
     else { return nil }
 
     let desired = reclaim.map { reclaimedRect(for: window, in: $0) } ?? window
+
+    // Only a window the reclaim left alone gets the allowance. One that is
+    // being moved anyway is moved to exactly the right place, so the slack
+    // never turns into a gap that the next change would have to account for.
+    if desired == window, visible.insetBy(dx: -slack, dy: -slack).contains(window) {
+        return nil
+    }
     let (fixed, clamped) = clamp(desired, into: visible)
 
     let moved = abs(fixed.minX - window.minX) > tolerance || abs(fixed.minY - window.minY) > tolerance

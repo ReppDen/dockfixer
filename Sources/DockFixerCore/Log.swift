@@ -57,10 +57,20 @@ public final class Log: ObservableObject {
     private let rotateAtBytes = 5 * 1024 * 1024
     private let ioQueue = DispatchQueue(label: "com.github.reppden.dockfixer.log", qos: .utility)
     private var handle: FileHandle?
+    /// The day of the last line written. Lines carry only the time, and the app
+    /// runs for days on end, so a line of its own marks each new day.
+    private var lastDay: String
 
     private static let lineTime: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
+
+    private static let dayFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd EEEE"
+        f.locale = Locale(identifier: "en_US_POSIX")
         return f
     }()
 
@@ -90,6 +100,7 @@ public final class Log: ObservableObject {
         fileURL = dir.appendingPathComponent("dockfixer.log")
 
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        lastDay = Self.dayFormat.string(from: Date())
         rotateIfNeeded()
         openHandle()
 
@@ -119,6 +130,11 @@ public final class Log: ObservableObject {
         entries.append(entry)
         if entries.count > bufferLimit {
             entries.removeFirst(entries.count - bufferLimit)
+        }
+        let day = Self.dayFormat.string(from: entry.time)
+        if day != lastDay {
+            lastDay = day
+            appendToFile("\n=== \(day) ===\n")
         }
         appendToFile(Self.format(entry) + "\n")
     }

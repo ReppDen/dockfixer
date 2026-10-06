@@ -13,7 +13,11 @@ run.suite("Reclaim: idempotence", reclaimIdempotence)
 run.suite("Reclaim: the Dock moving to another edge", reclaimAcrossAnEdgeChange)
 run.suite("Reclaim: floating windows left alone", reclaimLeavesFloatingWindowsAlone)
 run.suite("Reclaim: result always inside usable area", reclaimAlwaysInside)
+run.suite("Dock noise: windows a few points out are left alone", dockNoiseSlack)
+run.suite("Dock noise: measuring a Dock change", dockNoiseMeasure)
+run.suite("Dock noise: a day of a wandering Dock", dockNoiseDay)
 run.suite("ScreenMap: coordinate conversion", screenMapConversion)
+run.suite("Log: levels per build") { t in MainActor.assumeIsolated { logLevels(t) } }
 run.suite("ScreenMap: telling a Dock change from a display change", screenMapLayoutChange)
 
 run.finish()

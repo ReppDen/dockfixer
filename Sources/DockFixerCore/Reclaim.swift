@@ -36,11 +36,11 @@ public struct ReclaimedSpace: Equatable, Sendable {
 
 /// Gains smaller than this are noise — a rounding difference, not a Dock.
 ///
-/// Low on purpose. The Dock grows and shrinks by a point at a time as
-/// applications open and quit, and pushing a window out of the way has no
-/// threshold at all — a single point of overlap moves it. A higher floor here
-/// made the two directions disagree, and windows ratcheted inwards: every
-/// growth nudged them, no shrink ever gave the point back.
+/// Low on purpose. A higher floor here alone once made the two directions
+/// disagree, and windows ratcheted inwards: every growth nudged them, no shrink
+/// ever gave the point back. Small Dock changes are filtered earlier, by
+/// `DisplayWatcher` against `dockNoise`, and that filter treats growing and
+/// shrinking the same way; a change that gets this far is meant to be acted on.
 public let minimumGainDefault: CGFloat = 0.5
 /// Edges within this distance of each other count as touching.
 private let edgeEpsilon: CGFloat = 0.5

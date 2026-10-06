@@ -295,6 +295,7 @@ final class AppState: ObservableObject {
         }
 
         isBusy = true
+        let started = Date()
 
         // Whether it may be used was decided when the change arrived. Consumed
         // either way: a snapshot kept across a pass would only go stale.
@@ -311,7 +312,13 @@ final class AppState: ObservableObject {
             // The trigger is not repeated: a display change was already logged
             // by the watcher, and a button press was made by the person reading
             // this.
-            log.info("pass — \(summary.headline)")
+            // How long it took only when that is worth noticing: after a wake
+            // or a display change applications answer slowly, and a pass that
+            // reads the layout at its start and writes seconds later is the
+            // first thing to suspect when windows land somewhere odd.
+            let took = Date().timeIntervalSince(started)
+            log.info("pass — \(summary.headline)"
+                + (took >= 1 ? " — took \(String(format: "%.1f", took))s" : ""))
             describe(summary, answering: answerNextPass)
             answerNextPass = false
             isBusy = false

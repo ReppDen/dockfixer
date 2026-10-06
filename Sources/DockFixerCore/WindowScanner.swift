@@ -317,10 +317,13 @@ public final class WindowScanner: Sendable {
 
         guard let fix = computeFix(window: frame,
                                    visible: screen.axVisibleFrame,
-                                   reclaim: reclaim[screen.displayID]) else {
+                                   reclaim: reclaim[screen.displayID],
+                                   slack: dockNoise) else {
             // Already inside the usable area, with nothing to reclaim.
             // Not logged: this is most windows.
-            note("\(frame.logDescription) on \(screen.localizedName) — nothing to correct"
+            let inside = screen.axVisibleFrame.contains(frame)
+            note("\(frame.logDescription) on \(screen.localizedName) — "
+                + (inside ? "nothing to correct" : "sticks out by \(Int(dockNoise))pt or less, left alone")
                 + (reclaim[screen.displayID] == nil ? "" : ", and it was not held by the Dock"))
             return
         }

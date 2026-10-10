@@ -122,7 +122,7 @@ private struct MenuContent: View {
         // Worded exactly as in the window: two names for one switch is two
         // things to learn.
         Section("Move Windows") {
-            Toggle("When a New Window Opens Under the Dock", isOn: $state.newWindowsEnabled)
+            Toggle("When a Window Appears Under the Dock", isOn: $state.newWindowsEnabled)
             Toggle("When the Dock Changes Size or Position", isOn: $state.dockChangesEnabled)
             Toggle("When You Connect or Remove a Display", isOn: $state.displayChangesEnabled)
             Toggle("Fill the Space the Dock Leaves Behind", isOn: $state.reclaimEnabled)

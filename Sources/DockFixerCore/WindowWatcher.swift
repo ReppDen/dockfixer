@@ -11,6 +11,14 @@ import ApplicationServices
 ///
 /// Only the new window is handed over. Every other window is where the user
 /// left it, and opening an unrelated one is no reason to move it.
+///
+/// Two more moments count as a window appearing, because Accessibility does
+/// not list a window while it cannot be seen: an application hidden with ⌘H
+/// being shown again, and a switch to another Space. A display change that
+/// happens while a window is out of sight is handled by nobody — macOS drops
+/// the window on the remaining display, under the Dock if that is where its
+/// corner lands, and the pass for that change never saw it. When it comes back
+/// into view it is handed over like a window that has just opened.
 @MainActor
 public final class WindowWatcher {
 
@@ -56,6 +64,21 @@ public final class WindowWatcher {
                 else { return }
                 MainActor.assumeIsolated {
                     self?.detach(app.processIdentifier)
+                }
+            },
+            center.addObserver(forName: NSWorkspace.didUnhideApplicationNotification,
+                               object: nil, queue: .main) { [weak self] note in
+                guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                else { return }
+                MainActor.assumeIsolated {
+                    self?.handOver(windowsOf: [app], reason: "shown again")
+                }
+            },
+            center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
+                               object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.handOver(windowsOf: NSWorkspace.shared.runningApplications,
+                                   reason: "Space changed")
                 }
             },
         ]
@@ -119,6 +142,48 @@ public final class WindowWatcher {
             for window in AX.windows(of: element) ?? [] {
                 handler(window, pid, name)
             }
+        }
+    }
+
+    /// Every window these applications show right now goes to the handler,
+    /// which moves only the ones under the Dock and says nothing about the rest.
+    /// Only applications already being watched: the filter on what is worth
+    /// watching was applied when they were attached.
+    ///
+    /// The notification that an application was shown again arrives before
+    /// Accessibility lists its windows — the first look found none, every
+    /// time — so an empty answer is tried again after the same delays as a
+    /// launch. An application that genuinely has no windows costs three looks.
+    private func handOver(windowsOf apps: [NSRunningApplication], reason: String, attempt: Int = 0) {
+        guard isRunning else { return }
+        var windows: [(AXUIElement, pid_t, String)] = []
+        var appsSeen = 0
+        for app in apps {
+            let pid = app.processIdentifier
+            let name = app.localizedName ?? "pid \(pid)"
+            guard observers[pid] != nil else { continue }
+            // Accessibility lists only the windows on the current Space, so an
+            // application shown again whose windows are elsewhere answers with
+            // none here; the switch to its Space, if macOS makes one, is the
+            // event that finds them.
+            guard let found = AX.windows(of: AX.application(pid: pid)), !found.isEmpty else { continue }
+            appsSeen += 1
+            for window in found {
+                windows.append((window, pid, name))
+            }
+        }
+        if windows.isEmpty, attempt < Self.attachDelays.count {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.attachDelays[attempt]) { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.handOver(windowsOf: apps, reason: reason, attempt: attempt + 1)
+                }
+            }
+            return
+        }
+        log.debug("\(reason) — \(windows.count) window\(windows.count == 1 ? "" : "s") in \(appsSeen) app\(appsSeen == 1 ? "" : "s") handed over"
+            + (attempt > 0 ? " on look \(attempt + 1)" : ""))
+        for (window, pid, name) in windows {
+            handler(window, pid, name)
         }
     }
 

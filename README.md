@@ -111,7 +111,7 @@ and moving or resizing the Dock triggers a pass of its own.
 
 | Switch | What starts a correction |
 | --- | --- |
-| **When a new window opens under the Dock** | An application opens a window underneath it. Only that window is moved. |
+| **When a window appears under the Dock** | An application opens a window underneath it, shows again windows it had hidden with ⌘H, or you switch to a Space where a window sits under the Dock. Only those windows are moved. |
 | **When the Dock changes size or position** | The Dock grows, shrinks or moves to another edge. Windows under it move out; windows next to it stay next to it. |
 | **When you connect or remove a display** | macOS shuffles windows between displays. **Fill the space the Dock leaves behind** is part of this one. |
 
@@ -284,10 +284,11 @@ all; these are reported as `SKIP` or `FAIL` rather than being retried forever.
 ## Known limitations
 
 - **Other Spaces.** The Accessibility API only reports windows on the current
-  Space, so windows parked on another desktop are neither listed nor moved.
-  Working around this requires disabling System Integrity Protection, which
-  DockFixer will not ask you to do. Switch to that Space and press **Fix Windows
-  Now**.
+  Space, so a pass does not see windows parked on another desktop. Working
+  around this requires disabling System Integrity Protection, which DockFixer
+  will not ask you to do. Instead, switching to a Space counts as its windows
+  appearing: the ones under the Dock are moved then, if **When a window appears
+  under the Dock** is on.
 - **Not notarised.** Release builds are ad-hoc signed, so the first launch needs
   the `xattr` command above, and the Accessibility permission has to be granted
   again after an update. Building from source with `make dev` avoids both.

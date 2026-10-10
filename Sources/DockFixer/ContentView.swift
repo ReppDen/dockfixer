@@ -216,9 +216,11 @@ struct ContentView: View {
     private var dock: some View {
         VStack(alignment: .leading, spacing: 10) {
             // Each title finishes the sentence the row's name starts: "Move
-            // windows" · "when a new window opens under the Dock".
+            // windows" · "when a window appears under the Dock". "Appears"
+            // rather than "opens": a window shown again after ⌘H, or on a
+            // Space just switched to, counts as well.
             option(isOn: $state.newWindowsEnabled,
-                   title: "When a new window opens under the Dock")
+                   title: "When a window appears under the Dock")
             // Not "windows move with the Dock": a Dock that moves to another
             // edge pushes windows out of its way, and nothing follows it there.
             option(isOn: $state.dockChangesEnabled,

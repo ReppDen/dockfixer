@@ -117,18 +117,21 @@ enum AX {
 
     // MARK: - Writing
 
+    /// The error is returned rather than a flag because a `FAIL` line that
+    /// says `cannotComplete` or `illegalArgument` tells which application is
+    /// at fault; "the write did not take" on its own does not.
     @discardableResult
-    static func setPosition(_ window: AXUIElement, _ point: CGPoint) -> Bool {
+    static func setPosition(_ window: AXUIElement, _ point: CGPoint) -> AXError {
         var point = point
-        guard let value = AXValueCreate(.cgPoint, &point) else { return false }
-        return AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, value) == .success
+        guard let value = AXValueCreate(.cgPoint, &point) else { return .failure }
+        return AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, value)
     }
 
     @discardableResult
-    static func setSize(_ window: AXUIElement, _ size: CGSize) -> Bool {
+    static func setSize(_ window: AXUIElement, _ size: CGSize) -> AXError {
         var size = size
-        guard let value = AXValueCreate(.cgSize, &size) else { return false }
-        return AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, value) == .success
+        guard let value = AXValueCreate(.cgSize, &size) else { return .failure }
+        return AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, value)
     }
 
     // MARK: - Applications

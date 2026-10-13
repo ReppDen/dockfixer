@@ -304,16 +304,16 @@ final class AppState: ObservableObject {
                     debugDetail: log.isDebug) { [weak self] summary in
             guard let self else { return }
             record(summary)
-            // One line per pass, at the end, when there is something to report.
-            // The trigger is not repeated: a display change was already logged
-            // by the watcher, and a button press was made by the person reading
-            // this.
+            // One line per pass, at the end, naming what started it: the
+            // person reading this is as likely the one sent the log as the one
+            // who pressed the button, and the watcher's line is not always the
+            // nearest one above.
             // How long it took only when that is worth noticing: after a wake
             // or a display change applications answer slowly, and a pass that
             // reads the layout at its start and writes seconds later is the
             // first thing to suspect when windows land somewhere odd.
             let took = Date().timeIntervalSince(started)
-            log.info("pass — \(summary.headline)"
+            log.info("pass (\(trigger)\(attempt > 0 ? ", try \(attempt + 1)" : "")) — \(summary.headline)"
                 + (took >= 1 ? " — took \(String(format: "%.1f", took))s" : ""))
             describe(summary, answering: answerNextPass)
             answerNextPass = false
@@ -447,13 +447,5 @@ final class AppState: ObservableObject {
         screens = current
     }
 
-    /// One line for the log, where a list of rows would not fit.
-    var displaysSummary: String {
-        screens.map { screen in
-            "\(screen.localizedName) \(Int(screen.axFrame.width))x\(Int(screen.axFrame.height))"
-                + " dock \(screen.dockEdge)"
-                + (screen.isPrimary && screens.count > 1 ? " (primary)" : "")
-        }
-        .joined(separator: "   ·   ")
-    }
+    var displaysSummary: String { ScreenMap.summary(screens) }
 }

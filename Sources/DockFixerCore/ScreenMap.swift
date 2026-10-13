@@ -137,6 +137,17 @@ public enum ScreenMap {
     /// Stable fingerprint of a configuration, used to tell whether the display
     /// layout has settled after an unplug. Includes the visible frames so a
     /// Dock move counts as a change too.
+    /// One line for the log, where a list of rows would not fit:
+    /// `Built-in Retina Display 1512x982 dock left 52pt   ·   DELL 2560x1440 dock hidden (primary)`.
+    public static func summary(_ screens: [ScreenInfo]) -> String {
+        screens.map { screen in
+            "\(screen.localizedName) \(Int(screen.axFrame.width))x\(Int(screen.axFrame.height))"
+                + " dock \(screen.dockEdge)"
+                + (screen.isPrimary && screens.count > 1 ? " (primary)" : "")
+        }
+        .joined(separator: "   ·   ")
+    }
+
     public static func fingerprint(_ screens: [ScreenInfo]) -> String {
         screens
             .sorted { $0.displayID < $1.displayID }

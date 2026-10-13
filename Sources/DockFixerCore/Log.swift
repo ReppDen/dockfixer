@@ -104,8 +104,35 @@ public final class Log: ObservableObject {
         rotateIfNeeded()
         openHandle()
 
+        // The first thing a report is read for is which build on which
+        // system, and the person sending it should not have to be asked.
         let stamp = Self.sessionHeaderTime.string(from: Date())
-        appendToFile("\n=== DockFixer session started \(stamp)\(isDebug ? " (debug logging)" : "") ===\n")
+        appendToFile("\n=== DockFixer \(Self.buildDescription()) session started \(stamp)"
+            + "\(isDebug ? " (debug logging)" : "") — \(Self.systemDescription()) ===\n")
+    }
+
+    /// `0.1.0 (arm64)`, or `unversioned` for a binary run outside a bundle.
+    static func buildDescription() -> String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        #if arch(arm64)
+        let arch = "arm64"
+        #else
+        let arch = "x86_64"
+        #endif
+        return "\(version ?? "unversioned") (\(arch))"
+    }
+
+    /// `macOS 15.1 (24B83), MacBookPro18,3`.
+    static func systemDescription() -> String {
+        let os = ProcessInfo.processInfo.operatingSystemVersionString
+            .replacingOccurrences(of: "Version ", with: "")
+            .replacingOccurrences(of: "(Build ", with: "(")
+        var size = 0
+        sysctlbyname("hw.model", nil, &size, nil, 0)
+        var bytes = [CChar](repeating: 0, count: size)
+        sysctlbyname("hw.model", &bytes, &size, nil, 0)
+        let model = String(cString: bytes)
+        return "macOS \(os)" + (model.isEmpty ? "" : ", \(model)")
     }
 
     // MARK: - Writing

@@ -234,12 +234,19 @@ Shown live in the window, and written to:
 ```
 
 ```
-[20:18:52.575] INFO   displays changed: 2 -> 1, settled after 1 polls
-[20:18:53.357] MOVED  Google Chrome   "docs"  (0,33 1512x949) -> (49,33 1463x949) shiftX=49 shrinkW=49 clamped
-[20:18:53.357] MOVED  WhatsApp        "WhatsApp"  (48,33 1201x949) -> (49,33 1201x949) shiftX=1
-[20:18:53.357] FAIL   IntelliJ IDEA   "proj"  want (49,33 1463x949) got (0,33 1512x949) after 3 tries
-[20:18:53.357] INFO   move — 27 windows in 23 apps — 2 moved, 1 could not be moved, 22 already in place, 2 minimized
+=== DockFixer 0.1.0 (arm64) session started 2026-10-13 20:18:40 — macOS 15.1 (24B83), MacBookPro18,3 ===
+[20:18:52.575] INFO   displays changed: 2 -> 1, settled after 1 polls, 0.1s after the first notification
+[20:18:52.575] INFO   now: Built-in Retina Display 1512x982 dock left 49pt
+[20:18:53.357] MOVED  Google Chrome   "docs"  (0,33 1512x949) -> (49,33 1463x949) shiftX=49 shrinkW=49 clamped [+0ms, 11ms]
+[20:18:53.357] MOVED  WhatsApp        "WhatsApp"  (48,33 1201x949) -> (49,33 1201x949) shiftX=1 [+0ms, 2ms]
+[20:18:53.357] FAIL   IntelliJ IDEA   "proj"  want (49,33 1463x949) got (0,33 1512x949) after 3 tries — every write was accepted [+0ms, 40ms, written again]
+[20:18:53.357] INFO   pass (display change) — 27 windows in 23 apps — 2 moved, 1 could not be moved, 22 already in place, 2 minimized
 ```
+
+The session header names the build and the machine, every pass names what
+started it, and a `MOVED` or `FAIL` line ends with when in the pass the write
+went out, how long the application took to accept it, and whether it had to be
+written again — so a report needs nothing but the log.
 
 The log records what a pass *did*, not everything it saw. A minimised window, a
 window already in the right place, the desktop layer — none of that is an event
@@ -252,10 +259,10 @@ property rather than something that happened.
 | Level | Meaning |
 | --- | --- |
 | `DEBUG` | Every window a pass looked at, the display layout before and after a change, and why a pass decided as it did. Off in a release build. |
-| `INFO` | Passes, display changes, permission changes. |
-| `MOVED` | Window corrected, with before, after, and by how much. |
-| `SKIP` | Window in the way that cannot be moved or resized at all. Once per session. |
-| `FAIL` | Correction was attempted and did not stick, with what was asked for and what happened. |
+| `INFO` | Passes, Dock and display changes, settings, sleep and wake, permission changes, applications that cannot be watched for new windows. |
+| `MOVED` | Window corrected, with before, after, by how much, and the timing. |
+| `SKIP` | Window in the way that cannot be moved or resized at all, or an application that would not list its windows. Once per session. |
+| `FAIL` | Correction was attempted and did not stick, with what was asked for, what happened, and the error the application returned, if any. |
 
 `DEBUG` is the exception to the rule above, deliberately: when a pass did nothing
 and the question is why, the counted-not-printed windows are exactly what has to

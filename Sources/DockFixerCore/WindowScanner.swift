@@ -48,6 +48,10 @@ public enum SkipReason: Sendable, CaseIterable {
 public struct ScanSummary: Sendable {
     public var outcomes: [WindowOutcome] = []
     public var appsScanned = 0
+    /// Applications that would not list their windows, even when asked again.
+    /// Their windows are the ones a pass can neither see nor move, so the
+    /// count belongs in the headline next to the windows that were seen.
+    public var appsSilent = 0
     public var windowsSeen = 0
     /// Windows that overlap the Dock or the menu bar and need correcting.
     public var candidates = 0
@@ -61,6 +65,7 @@ public struct ScanSummary: Sendable {
     public mutating func merge(_ other: ScanSummary) {
         outcomes += other.outcomes
         appsScanned += other.appsScanned
+        appsSilent += other.appsSilent
         windowsSeen += other.windowsSeen
         candidates += other.candidates
         moved += other.moved
@@ -89,6 +94,8 @@ public struct ScanSummary: Sendable {
             let count = skips[reason] ?? 0
             if count > 0 { parts.append("\(count) \(reason.label(count))") }
         }
+
+        if appsSilent > 0 { parts.append(appsSilent == 1 ? "1 app did not answer" : "\(appsSilent) apps did not answer") }
 
         let body = parts.isEmpty ? "nothing to do" : parts.joined(separator: ", ")
         let windows = windowsSeen == 1 ? "1 window" : "\(windowsSeen) windows"
@@ -449,16 +456,18 @@ public final class WindowScanner: Sendable {
             summary.moved += 1
             summary.outcomes.append(WindowOutcome(
                 app: plan.app.name, title: plan.title, level: .moved, detail: plan.transition + timing))
-        case .mismatch(let actual, let attempts):
+        case .mismatch(let actual, let attempts, let error):
             summary.failed += 1
             summary.outcomes.append(WindowOutcome(
                 app: plan.app.name, title: plan.title, level: .fail,
-                detail: "want \(target.logDescription) got \(actual.logDescription) after \(attempts) tries" + timing))
-        case .unreadable:
+                detail: "want \(target.logDescription) got \(actual.logDescription) after \(attempts) tries"
+                    + (error.map { " — \($0)" } ?? " — every write was accepted") + timing))
+        case .unreadable(let error):
             summary.failed += 1
             summary.outcomes.append(WindowOutcome(
                 app: plan.app.name, title: plan.title, level: .fail,
-                detail: "wrote \(target.logDescription) but could not read the window back" + timing))
+                detail: "wrote \(target.logDescription) but could not read the window back — "
+                    + (error ?? AX.readFailure(plan.window, kAXPositionAttribute as String)) + timing))
         }
     }
 
@@ -506,15 +515,18 @@ public final class WindowScanner: Sendable {
                         retry: Bool = false) -> AppScan? {
         let appElement = AX.application(pid: app.pid)
         guard let windows = AX.windows(of: appElement) else {
-            guard debugDetail else { return nil }
-            let failure = AX.readFailure(appElement, kAXWindowsAttribute as String)
-            // Only on the retry, so that agents with no windows do not fill
-            // the log twice on every pass.
+            // Only on the retry, so that the first miss does not fill the log
+            // on every pass. Named in the ordinary log, once per session: an
+            // application whose windows a pass cannot see is the first thing
+            // to look for when one of them was left under the Dock.
             guard retry else { return nil }
             var own = AppScan()
+            own.summary.appsSilent = 1
             own.summary.outcomes.append(WindowOutcome(
-                app: app.name, title: "", level: .debug,
-                detail: "did not list its windows, even when asked again — \(failure)"))
+                app: app.name, title: "", level: .skip,
+                detail: "did not list its windows, even when asked again — "
+                    + AX.readFailure(appElement, kAXWindowsAttribute as String),
+                logOncePerSession: true))
             return own
         }
         var own = AppScan()
@@ -664,8 +676,11 @@ public final class WindowScanner: Sendable {
 
     private enum ApplyResult {
         case success
-        case mismatch(actual: CGRect, attempts: Int)
-        case unreadable
+        /// `error` is the last write the application rejected, if any; a
+        /// window that accepted every write and still did not move is a
+        /// mismatch with no error, which is its own kind of answer.
+        case mismatch(actual: CGRect, attempts: Int, error: String?)
+        case unreadable(error: String?)
     }
 
     /// Writes the target rect and verifies it stuck.
@@ -676,17 +691,21 @@ public final class WindowScanner: Sendable {
     /// the readback catches the rest.
     private func apply(_ target: CGRect, to window: AXUIElement) -> ApplyResult {
         var lastRead: CGRect?
+        var lastError: String?
+        func check(_ what: String, _ result: AXError) {
+            if result != .success { lastError = "\(what): \(AX.describe(result))" }
+        }
 
         for attempt in 1...maxAttempts {
             if attempt > 1, let last = lastRead {
                 let below = Self.stepBelow(target.size, from: last.size)
-                if below != target.size { AX.setSize(window, below) }
+                if below != target.size { check("size", AX.setSize(window, below)) }
             }
-            AX.setSize(window, target.size)
-            AX.setPosition(window, target.origin)
-            AX.setSize(window, target.size)
+            check("size", AX.setSize(window, target.size))
+            check("position", AX.setPosition(window, target.origin))
+            check("size", AX.setSize(window, target.size))
 
-            guard let actual = AX.frame(window) else { return .unreadable }
+            guard let actual = AX.frame(window) else { return .unreadable(error: lastError) }
             lastRead = actual
 
             let close = abs(actual.minX - target.minX) <= tolerance
@@ -702,7 +721,7 @@ public final class WindowScanner: Sendable {
             }
         }
 
-        guard let actual = lastRead else { return .unreadable }
-        return .mismatch(actual: actual, attempts: maxAttempts)
+        guard let actual = lastRead else { return .unreadable(error: lastError) }
+        return .mismatch(actual: actual, attempts: maxAttempts, error: lastError)
     }
 }

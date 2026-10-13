@@ -86,7 +86,7 @@ public final class WindowWatcher {
         for app in NSWorkspace.shared.runningApplications {
             attach(app, handOverExisting: false)
         }
-        log.debug("watching \(observers.count) apps for new windows")
+        log.info("watching \(observers.count) apps for new windows")
     }
 
     public func stop() {
@@ -114,8 +114,10 @@ public final class WindowWatcher {
         let name = app.localizedName ?? "pid \(pid)"
 
         var created: AXObserver?
+        // In the ordinary log: a new window of this application will not be
+        // looked at, and that is exactly what a report about one would ask.
         guard AXObserverCreate(pid, windowCallback, &created) == .success, let observer = created else {
-            log.debug("\(name): could not create an accessibility observer")
+            log.info("\(name): not watching for new windows — could not create an accessibility observer")
             return
         }
 
@@ -125,7 +127,7 @@ public final class WindowWatcher {
                                                kAXWindowCreatedNotification as CFString, refcon)
         guard result == .success else {
             guard attempt < Self.attachDelays.count else {
-                log.debug("\(name): not watching for new windows — \(AX.describe(result))")
+                log.info("\(name): not watching for new windows — \(AX.describe(result))")
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.attachDelays[attempt]) { [weak self] in

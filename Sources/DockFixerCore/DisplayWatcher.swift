@@ -25,6 +25,8 @@ public final class DisplayWatcher {
     /// The note for the log, and the layout as it was *before* the change.
     /// The previous visible frames are the only record of where the Dock used
     /// to be, which is what tells `reclaims` how much space a display regained.
+    /// Called with a short name for what changed — "Dock change" or "display
+    /// change", for the pass to name its trigger — and the layout before it.
     public typealias Handler = (String, [ScreenInfo]) -> Void
 
     /// Two identical readings in a row mean the layout has settled.
@@ -115,7 +117,7 @@ public final class DisplayWatcher {
 
     /// Sleep, wake, lock and unlock: logged because they are what the Dock and
     /// display changes around them turn out to follow, and the log is the only
-    /// account of a day there is. Waking and unlocking also open a hold.
+    /// account of a day there is.
     ///
     /// Applications opening and quitting are logged at debug level for the
     /// same reason — they are what makes a side Dock change its thickness.
@@ -135,25 +137,25 @@ public final class DisplayWatcher {
             self?.log.info("system: going to sleep")
         }
         on(workspace, NSWorkspace.didWakeNotification) { [weak self] _ in
-            self?.hold(after: "system: woke from sleep")
+            self?.logSystem( "system: woke from sleep")
         }
         on(workspace, NSWorkspace.screensDidSleepNotification) { [weak self] _ in
             self?.log.info("system: displays went to sleep")
         }
         on(workspace, NSWorkspace.screensDidWakeNotification) { [weak self] _ in
-            self?.hold(after: "system: displays woke")
+            self?.logSystem( "system: displays woke")
         }
         on(workspace, NSWorkspace.sessionDidResignActiveNotification) { [weak self] _ in
             self?.log.info("system: switched to another user")
         }
         on(workspace, NSWorkspace.sessionDidBecomeActiveNotification) { [weak self] _ in
-            self?.hold(after: "system: switched back to this user")
+            self?.logSystem( "system: switched back to this user")
         }
         on(distributed, Notification.Name("com.apple.screenIsLocked")) { [weak self] _ in
             self?.log.info("system: screen locked")
         }
         on(distributed, Notification.Name("com.apple.screenIsUnlocked")) { [weak self] _ in
-            self?.hold(after: "system: screen unlocked")
+            self?.logSystem( "system: screen unlocked")
         }
         on(workspace, NSWorkspace.didLaunchApplicationNotification) { [weak self] note in
             self?.logApplication(note, "opened")
@@ -170,7 +172,7 @@ public final class DisplayWatcher {
         log.debug("\(app.localizedName ?? "pid \(app.processIdentifier)") \(what)")
     }
 
-    private func hold(after event: String) {
+    private func logSystem(_ event: String) {
         log.info(event)
     }
 
@@ -270,8 +272,10 @@ public final class DisplayWatcher {
 
         // macOS reports both with one notification; the log says which it was.
         var note: String
+        let trigger: String
         switch classifyLayoutChange(previous: previousScreens, current: screens) {
         case .dock:
+            trigger = "Dock change"
             let shift = largestEdgeShift(previous: previousScreens, current: screens)
             let what = describeDockChange(previous: previousScreens, current: screens)
             guard shift > dockNoise || !ignoreSmallDockChanges else {
@@ -282,6 +286,7 @@ public final class DisplayWatcher {
             }
             note = "the Dock changed by \(Int(shift.rounded()))pt (\(what))"
         case .displays:
+            trigger = "display change"
             note = "displays changed: \(previousScreens.count) -> \(screens.count)"
         }
         lastScreens = screens
@@ -289,7 +294,12 @@ public final class DisplayWatcher {
         note += settled ? ", settled after \(polls) polls" : ", still changing after \(polls) polls — going ahead anyway"
         note += ", \(waited)s after the first notification"
         log.info(note)
+        if trigger == "display change" {
+            // The Dock's edge and thickness on each display is what every
+            // decision of the pass that follows rests on.
+            log.info("now: \(ScreenMap.summary(screens))")
+        }
 
-        handler(note, previousScreens)
+        handler(trigger, previousScreens)
     }
 }

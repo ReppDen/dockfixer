@@ -34,6 +34,11 @@
 	     when a pass did nothing and the question is why. -->
 	<key>DockFixerLogLevel</key>
 	<string>__LOG_LEVEL__</string>
+	<!-- The PostHog project key for the usage statistics (see Usage.swift).
+	     Write-only, so it is safe in the open. Left unsubstituted or empty,
+	     the switch stays but nothing is sent — a fork sends nothing to us. -->
+	<key>DockFixerUsageKey</key>
+	<string>__USAGE_KEY__</string>
 	<!-- Deliberately not LSUIElement: with its window open DockFixer is a normal
 	     application, with a Dock icon and an entry in the app switcher. Closing
 	     the window does not quit it — the watcher has to keep running — so it

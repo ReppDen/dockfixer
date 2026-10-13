@@ -212,6 +212,7 @@ the same layout you are.
 | **Fix Windows Now** | Runs a pass immediately and says what it did underneath. Also in the menu bar. |
 | **Launch at login** | Registers DockFixer as a login item. macOS may ask you to allow it under System Settings → General → Login Items. |
 | **Hide menu bar icon** | Leaves the menu-bar item out. Off by default. |
+| **Send anonymous usage statistics** | One line a day about how many windows were moved. On by default; see [What DockFixer sends](#what-dockfixer-sends) for the whole of it. |
 | **GitHub · Report a Bug · Ask a Question** | The repository, a new issue with the version, macOS and Dock position filled in, and Discussions. |
 | **Show Log** | Opens the log in a window of its own, with Copy, Clear and Reveal in Finder. |
 | **Quit** | Fully quits. |
@@ -224,6 +225,44 @@ An automatic pass does not fire the instant a display disappears. macOS sends th
 change notification several times in a burst, and WindowServer goes on relocating
 windows afterwards, so DockFixer waits for the layout to stop changing before
 acting.
+
+## What DockFixer sends
+
+Once a day, if **Send anonymous usage statistics** is on, DockFixer sends one
+event to [PostHog](https://posthog.com) (EU servers). This is all of it:
+
+```json
+{
+  "event": "day",
+  "distinct_id": "a random ID made on this Mac, nothing else is derived from it",
+  "uuid": "made from that ID and the day, so a day is never counted twice",
+  "timestamp": "2026-10-13T00:00:00Z",
+  "properties": {
+    "version": "0.1.0",
+    "day": "2026-10-13",
+    "pushedOut": 11,
+    "stuck": 40,
+    "acrossDisplays": 3,
+    "$geoip_disable": true
+  }
+}
+```
+
+The three numbers are how many windows the three switches moved that day: out
+from under the Dock, along with the Dock on the same display, and into the
+space the Dock left on another display. Not sent: window titles, application
+names, the macOS version, the Mac model, or where you are — the project is set
+to discard the IP address, and `$geoip_disable` keeps it from looking the
+address up. The counts are kept in a small file of their own
+(`~/Library/Application Support/DockFixer/usage.jsonl`), summed per UTC day,
+and a day is sent when it is over — on the next launch, wake, or hourly check,
+whichever comes first. Each send is a line in the log (`usage sent — …`).
+
+Turning the switch off deletes the file and the ID. A build without a project
+key — a fork, a plain `swift build` — sends nothing at all; the key goes in
+through `make app USAGE_KEY=…`. The whole thing is one file,
+`Sources/DockFixerCore/Usage.swift`. The numbers it adds up to are public:
+_dashboard link to follow_.
 
 ## Logs
 
@@ -259,7 +298,7 @@ property rather than something that happened.
 | Level | Meaning |
 | --- | --- |
 | `DEBUG` | Every window a pass looked at, the display layout before and after a change, and why a pass decided as it did. Off in a release build. |
-| `INFO` | Passes, Dock and display changes, settings, sleep and wake, permission changes, applications that cannot be watched for new windows. |
+| `INFO` | Passes, Dock and display changes, settings, sleep and wake, permission changes, applications that cannot be watched for new windows, usage statistics sent. |
 | `MOVED` | Window corrected, with before, after, by how much, and the timing. |
 | `SKIP` | Window in the way that cannot be moved or resized at all, or an application that would not list its windows. Once per session. |
 | `FAIL` | Correction was attempted and did not stick, with what was asked for, what happened, and the error the application returned, if any. |

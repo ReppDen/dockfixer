@@ -138,6 +138,13 @@ struct ContentView: View {
                            title: "Hide menu bar icon",
                            detail: "Open DockFixer again to show this window or quit.")
                 }
+                row("Statistics") {
+                    // Literally what goes out, and nothing it does not say:
+                    // see UsageReport.event.
+                    option(isOn: $state.sendUsageStatistics,
+                           title: "Send anonymous usage statistics",
+                           detail: "One line a day: the app version, the date, and how many windows were moved. No window names, no app names.")
+                }
             }
             Divider()
             footer

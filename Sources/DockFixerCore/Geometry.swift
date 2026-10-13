@@ -5,6 +5,19 @@ import CoreGraphics
 /// All rects here live in Accessibility coordinate space: origin at the
 /// top-left of the primary display, y growing downwards. See `ScreenMap`
 /// for the conversion from Cocoa's bottom-left space.
+/// What a correction was for. Counted in the usage statistics, nothing
+/// else: the three switches are cut along this same line, so the counts say
+/// how much each one does.
+public enum FixReason: Equatable, Sendable {
+    /// The window overlapped the Dock or the menu bar and was moved out.
+    case underDock
+    /// The window was next to the Dock and followed it — reclaimed the space a
+    /// shrinking or departing Dock gave back, or was put against it by the
+    /// snap. It may also have been clamped on the way, but the follow is why
+    /// it was touched at all.
+    case followedDock
+}
+
 public struct WindowFix: Equatable {
     /// Where the window should end up.
     public let rect: CGRect
@@ -15,12 +28,14 @@ public struct WindowFix: Equatable {
     /// True when the window was bigger than the usable area on some axis and
     /// had to be sized down to fit rather than merely nudged.
     public let clamped: Bool
+    public let reason: FixReason
 
-    public init(rect: CGRect, shift: CGVector, shrink: CGSize, clamped: Bool) {
+    public init(rect: CGRect, shift: CGVector, shrink: CGSize, clamped: Bool, reason: FixReason = .underDock) {
         self.rect = rect
         self.shift = shift
         self.shrink = shrink
         self.clamped = clamped
+        self.reason = reason
     }
 }
 
@@ -125,7 +140,8 @@ public func computeFix(window: CGRect,
         rect: fixed,
         shift: CGVector(dx: fixed.minX - window.minX, dy: fixed.minY - window.minY),
         shrink: CGSize(width: window.width - fixed.width, height: window.height - fixed.height),
-        clamped: clamped
+        clamped: clamped,
+        reason: desired == window ? .underDock : .followedDock
     )
 }
 

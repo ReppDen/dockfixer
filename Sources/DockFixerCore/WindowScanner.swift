@@ -12,6 +12,8 @@ public struct WindowOutcome: Sendable {
     /// once per session, because repeating them every pass buries the entries
     /// that do change.
     public var logOncePerSession = false
+    /// What the move counts as in the usage statistics; set on `moved` only.
+    public var kind: UsageKind? = nil
 }
 
 /// Why a window was passed over.
@@ -210,7 +212,7 @@ public final class WindowScanner: Sendable {
                 // No snap: this window was just placed by its application,
                 // and a gap it chose is not a Dock's leftover.
                 if let plan = self.decide(window: window, app: app, screens: screens,
-                                          reclaim: [:], slack: slack, snap: 0,
+                                          reclaim: [:], departed: [], slack: slack, snap: 0,
                                           debugDetail: debugDetail, into: &summary) {
                     summary.candidates += 1
                     summary.merge(self.write(plans: [plan]))
@@ -238,6 +240,7 @@ public final class WindowScanner: Sendable {
         let frame: CGRect
         let screen: ScreenInfo
         let fix: WindowFix
+        let kind: UsageKind
         /// Where the window sits in the stacking order, front first; windows
         /// not on screen go last.
         var depth = Int.max
@@ -292,11 +295,18 @@ public final class WindowScanner: Sendable {
         // A display the Dock left altogether is the across-displays case; a
         // Dock still on the display, thinner or on another edge, the same-
         // display one.
+        // The displays the Dock left altogether: the third switch's case, and
+        // the third count in the usage statistics.
+        var departed = Set<CGDirectDisplayID>()
         let reclaim = (previousScreens.map { reclaims(previous: $0, current: screens) } ?? [:])
             .filter { displayID, _ in
                 let hadDock = previousScreens?.first { $0.displayID == displayID }?.dockSide != nil
                 let hasDock = screens.first { $0.displayID == displayID }?.dockSide != nil
-                return hadDock && !hasDock ? follow.contains(.acrossDisplays) : follow.contains(.sameDisplay)
+                if hadDock && !hasDock {
+                    departed.insert(displayID)
+                    return follow.contains(.acrossDisplays)
+                }
+                return follow.contains(.sameDisplay)
             }
         let snap = follow.contains(.sameDisplay) ? dockSnap : 0
         if debugDetail {
@@ -329,7 +339,7 @@ public final class WindowScanner: Sendable {
         perApp.withUnsafeMutableBufferPointer { buffer in
             DispatchQueue.concurrentPerform(iterations: apps.count) { index in
                 buffer[index] = decide(app: apps[index], screens: screens, reclaim: reclaim,
-                                       slack: slack, snap: snap, debugDetail: debugDetail)
+                                       departed: departed, slack: slack, snap: snap, debugDetail: debugDetail)
             }
         }
 
@@ -341,7 +351,7 @@ public final class WindowScanner: Sendable {
         for index in perApp.indices where perApp[index] == nil {
             usleep(100_000)
             perApp[index] = decide(app: apps[index], screens: screens, reclaim: reclaim,
-                                   slack: slack, snap: snap, debugDetail: debugDetail, retry: true)
+                                   departed: departed, slack: slack, snap: snap, debugDetail: debugDetail, retry: true)
         }
 
         var plans: [Plan] = []
@@ -455,7 +465,8 @@ public final class WindowScanner: Sendable {
         case .success:
             summary.moved += 1
             summary.outcomes.append(WindowOutcome(
-                app: plan.app.name, title: plan.title, level: .moved, detail: plan.transition + timing))
+                app: plan.app.name, title: plan.title, level: .moved, detail: plan.transition + timing,
+                kind: plan.kind))
         case .mismatch(let actual, let attempts, let error):
             summary.failed += 1
             summary.outcomes.append(WindowOutcome(
@@ -509,6 +520,7 @@ public final class WindowScanner: Sendable {
     private func decide(app: AppRef,
                         screens: [ScreenInfo],
                         reclaim: [CGDirectDisplayID: ReclaimedSpace],
+                        departed: Set<CGDirectDisplayID>,
                         slack: CGFloat,
                         snap: CGFloat,
                         debugDetail: Bool,
@@ -539,7 +551,7 @@ public final class WindowScanner: Sendable {
         for window in windows {
             own.summary.windowsSeen += 1
             if let plan = decide(window: window, app: app, screens: screens,
-                                 reclaim: reclaim, slack: slack, snap: snap,
+                                 reclaim: reclaim, departed: departed, slack: slack, snap: snap,
                                  debugDetail: debugDetail, into: &own.summary) {
                 own.plans.append(plan)
             }
@@ -559,6 +571,7 @@ public final class WindowScanner: Sendable {
                         app: AppRef,
                         screens: [ScreenInfo],
                         reclaim: [CGDirectDisplayID: ReclaimedSpace],
+                        departed: Set<CGDirectDisplayID>,
                         slack: CGFloat,
                         snap: CGFloat,
                         debugDetail: Bool,
@@ -650,7 +663,12 @@ public final class WindowScanner: Sendable {
             return report(.immovable, "in the way but its size is fixed — would resize to \(fix.rect.logDescription)")
         }
 
-        return Plan(window: window, app: app, title: title, frame: frame, screen: screen, fix: fix)
+        let kind: UsageKind
+        switch fix.reason {
+        case .underDock: kind = .pushedOut
+        case .followedDock: kind = departed.contains(screen.displayID) ? .acrossDisplays : .stuck
+        }
+        return Plan(window: window, app: app, title: title, frame: frame, screen: screen, fix: fix, kind: kind)
     }
 
 

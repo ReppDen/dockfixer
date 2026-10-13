@@ -18,6 +18,12 @@ SIGN_IDENTITY ?= -
 # event rather than a running commentary.
 LOG_LEVEL ?= info
 
+# PostHog project keys for the usage statistics (Usage.swift): one project for
+# releases, one for local builds, so that a day of development is not a day
+# of use. Write-only keys, so they can live here. Empty means nothing is sent.
+USAGE_KEY     ?=
+DEV_USAGE_KEY ?=
+
 BUILD_DIR := build
 APP       := $(BUILD_DIR)/$(APP_NAME).app
 ZIP       := $(BUILD_DIR)/$(APP_NAME)-$(VERSION).zip
@@ -37,7 +43,7 @@ dev-cert:
 
 ## dev: build and install signed with the local identity, with debug logging, so the Accessibility grant survives rebuilds
 dev: dev-cert
-	$(MAKE) install SIGN_IDENTITY="$(DEV_IDENTITY)" LOG_LEVEL=debug
+	$(MAKE) install SIGN_IDENTITY="$(DEV_IDENTITY)" LOG_LEVEL=debug USAGE_KEY="$(DEV_USAGE_KEY)"
 
 ## icon: draw the app icon and build AppIcon.icns
 icon: $(ICNS)
@@ -74,7 +80,7 @@ app: $(ICNS)
 	# Octicons' GitHub mark (MIT), for the GitHub button.
 	cp Resources/github-mark.pdf "$(APP)/Contents/Resources/github-mark.pdf"
 	sed -e 's/__BUNDLE_ID__/$(BUNDLE_ID)/g' -e 's/__VERSION__/$(VERSION)/g' \
-		-e 's/__LOG_LEVEL__/$(LOG_LEVEL)/g' \
+		-e 's/__LOG_LEVEL__/$(LOG_LEVEL)/g' -e 's/__USAGE_KEY__/$(USAGE_KEY)/g' \
 		Resources/Info.plist > "$(APP)/Contents/Info.plist"
 	codesign --force --sign "$(SIGN_IDENTITY)" --identifier "$(BUNDLE_ID)" "$(APP)"
 	@echo "built $(APP) (signed with '$(SIGN_IDENTITY)')"

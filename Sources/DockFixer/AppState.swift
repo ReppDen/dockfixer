@@ -71,6 +71,23 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// One anonymous line a day — the install ID, the version, the date and
+    /// three counts — so that the project knows it is used and by how much.
+    /// Off, the journal and the install ID are deleted: there is nothing
+    /// left that could be sent later. See `Usage.swift` for all of it.
+    @Published var sendUsageStatistics: Bool {
+        didSet {
+            guard oldValue != sendUsageStatistics else { return }
+            UserDefaults.standard.set(sendUsageStatistics, forKey: Self.sendUsageStatisticsKey)
+            log.info("usage statistics: \(sendUsageStatistics ? "enabled" : "disabled")")
+            if sendUsageStatistics {
+                startUsage()
+            } else {
+                stopUsage(erasing: true)
+            }
+        }
+    }
+
     /// Mirrors `SMAppService`; kept in sync rather than trusted blindly, because
     /// macOS can hold the registration back pending approval.
     @Published var launchAtLogin: Bool {
@@ -107,6 +124,8 @@ final class AppState: ObservableObject {
     private static let ignoreSmallDockChangesKey = "ignoreSmallDockChanges"
     private static let fillAcrossDisplaysKey = "fillAcrossDisplays"
     private static let hideMenuBarIconKey = "hideMenuBarIcon"
+    private static let sendUsageStatisticsKey = "sendUsageStatistics"
+    private static let usageInstallIDKey = "usageInstallID"
     /// How long to wait before repeating a pass that could not read the windows.
     private static let retryDelays: [TimeInterval] = [0.75, 1.5, 3]
     private let scanner = WindowScanner()
@@ -114,6 +133,10 @@ final class AppState: ObservableObject {
     private var windowWatcher: WindowWatcher?
     private var pollTimer: Timer?
     private var isSyncingLoginItem = false
+    private var usageJournal: UsageJournal?
+    private var usage: UsageReporter?
+    private var usageTimer: Timer?
+    private var usageObservers: [NSObjectProtocol] = []
 
     /// A pass requested while another was running. Display changes must not be
     /// dropped just because a pass happened to be in flight.
@@ -140,12 +163,14 @@ final class AppState: ObservableObject {
             Self.ignoreSmallDockChangesKey: false,
             Self.fillAcrossDisplaysKey: true,
             Self.hideMenuBarIconKey: false,
+            Self.sendUsageStatisticsKey: true,
         ])
         moveFromUnderDock = UserDefaults.standard.bool(forKey: Self.moveFromUnderDockKey)
         stickToDock = UserDefaults.standard.bool(forKey: Self.stickToDockKey)
         ignoreSmallDockChanges = UserDefaults.standard.bool(forKey: Self.ignoreSmallDockChangesKey)
         fillAcrossDisplays = UserDefaults.standard.bool(forKey: Self.fillAcrossDisplaysKey)
         hideMenuBarIcon = UserDefaults.standard.bool(forKey: Self.hideMenuBarIconKey)
+        sendUsageStatistics = UserDefaults.standard.bool(forKey: Self.sendUsageStatisticsKey)
         launchAtLogin = LoginItem.isEnabled
         isTrusted = WindowScanner.isTrusted
 
@@ -178,7 +203,11 @@ final class AppState: ObservableObject {
         log.info("launch at login: \(LoginItem.statusDescription)")
         log.info("move windows under the Dock: \(onOff(moveFromUnderDock)), stick to the Dock: \(onOff(stickToDock))"
             + " (skipping \(Int(dockNoise))pt or less: \(onOff(ignoreSmallDockChanges)))"
-            + ", fill the space on another display: \(onOff(fillAcrossDisplays))")
+            + ", fill the space on another display: \(onOff(fillAcrossDisplays))"
+            + ", usage statistics: \(onOff(sendUsageStatistics))")
+        if sendUsageStatistics {
+            startUsage()
+        }
 
         if !isTrusted {
             log.info("Accessibility access not granted yet; approve DockFixer in the system prompt, or press Grant")
@@ -391,6 +420,9 @@ final class AppState: ObservableObject {
 
     private func record(_ summary: ScanSummary) {
         for outcome in summary.outcomes {
+            if let kind = outcome.kind {
+                usageJournal?.record(kind)
+            }
             if outcome.logOncePerSession {
                 let key = "\(outcome.app)|\(outcome.detail)"
                 guard noticesLogged.insert(key).inserted else { continue }
@@ -437,6 +469,80 @@ final class AppState: ObservableObject {
             launchAtLogin = LoginItem.isEnabled
             isSyncingLoginItem = false
         }
+    }
+
+    // MARK: - Usage statistics
+
+    /// The project key, baked into the bundle by the Makefile. A build without
+    /// one — a fork, a plain `swift build` — keeps the switch but sends
+    /// nothing, and says so once.
+    private static var usageKey: String? {
+        guard let key = Bundle.main.object(forInfoDictionaryKey: "DockFixerUsageKey") as? String,
+              !key.isEmpty, !key.hasPrefix("__")
+        else { return nil }
+        return key
+    }
+
+    private func startUsage() {
+        guard usage == nil else { return }
+        guard let key = Self.usageKey else {
+            log.info("usage statistics: this build has no project key — nothing is sent")
+            return
+        }
+        let installID: String
+        if let saved = UserDefaults.standard.string(forKey: Self.usageInstallIDKey) {
+            installID = saved
+        } else {
+            installID = UUID().uuidString.lowercased()
+            UserDefaults.standard.set(installID, forKey: Self.usageInstallIDKey)
+        }
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        let journal = UsageJournal(url: FileManager.default
+            .homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/DockFixer/usage.jsonl"))
+        usageJournal = journal
+        usage = UsageReporter(journal: journal, installID: installID, version: version, apiKey: key,
+                              log: log) { data in
+            await PostHog.send(data, version: version)
+        }
+
+        // No moment is safe to count on — the machine may be shut, asleep or
+        // offline at midnight — so the unsent days go whenever there is a
+        // chance: a little after launch, on every wake, and once an hour.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+            MainActor.assumeIsolated { self?.flushUsage() }
+        }
+        usageTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.flushUsage() }
+        }
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didWakeNotification,
+                     NSWorkspace.screensDidWakeNotification,
+                     NSWorkspace.sessionDidBecomeActiveNotification] {
+            usageObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.flushUsage() }
+            })
+        }
+    }
+
+    private func stopUsage(erasing: Bool) {
+        usageTimer?.invalidate()
+        usageTimer = nil
+        for observer in usageObservers {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        usageObservers = []
+        usage = nil
+        if erasing {
+            usageJournal?.erase()
+            UserDefaults.standard.removeObject(forKey: Self.usageInstallIDKey)
+        }
+        usageJournal = nil
+    }
+
+    private func flushUsage() {
+        guard let usage else { return }
+        Task { await usage.flush() }
     }
 
     private func refreshDisplays() {

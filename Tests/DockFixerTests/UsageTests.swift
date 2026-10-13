@@ -1,0 +1,168 @@
+import Foundation
+import DockFixerCore
+
+/// Why a window was moved, as the usage statistics count it: out from under
+/// the Dock, or following the Dock (reclaim or snap).
+func usageReason(_ t: TestRun) {
+    // A display with the Dock on the left: 50pt gone from the left edge.
+    let visible = CGRect(x: 50, y: 33, width: 1462, height: 949)
+
+    let under = CGRect(x: 0, y: 33, width: 800, height: 600)
+    t.expect(computeFix(window: under, visible: visible, reclaim: nil)?.reason == .underDock,
+             "a window under the Dock is pushed out")
+
+    let near = CGRect(x: 60, y: 33, width: 800, height: 600)
+    t.expect(computeFix(window: near, visible: visible, reclaim: nil, snap: 16, dockSide: .left)?.reason == .followedDock,
+             "a window snapped to the Dock followed it")
+
+    // The Dock shrank from 60pt to 50pt; a window against the old edge follows.
+    let reclaim = ReclaimedSpace(previousVisible: CGRect(x: 60, y: 33, width: 1452, height: 949), visible: visible)
+    t.expect(computeFix(window: near, visible: visible, reclaim: reclaim)?.reason == .followedDock,
+             "a window that reclaims the Dock's space followed it")
+
+    // Reclaimed and still under the menu bar: the follow is why it was touched.
+    let both = CGRect(x: 60, y: 10, width: 800, height: 600)
+    t.expect(computeFix(window: both, visible: visible, reclaim: reclaim)?.reason == .followedDock,
+             "a reclaimed window that was also clamped counts as following the Dock")
+}
+
+private func temporaryJournal() -> UsageJournal {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("dockfixer-usage-test-\(UUID().uuidString)", isDirectory: true)
+    return UsageJournal(url: dir.appendingPathComponent("usage.jsonl"))
+}
+
+private func utc(_ text: String) -> Date {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime]
+    return f.date(from: text)!
+}
+
+/// The journal sums by UTC day, marks a day alive once, and forgets a day
+/// that was sent without touching the others.
+func usageJournal(_ t: TestRun) {
+    let journal = temporaryJournal()
+    defer { journal.erase() }
+
+    // 23:30 in New York on the 12th is already the 13th in UTC.
+    journal.record(.pushedOut, at: utc("2026-10-13T03:30:00Z"))
+    journal.record(.pushedOut, at: utc("2026-10-13T10:00:00Z"))
+    journal.record(.stuck, at: utc("2026-10-13T10:00:01Z"))
+    journal.record(.acrossDisplays, at: utc("2026-10-14T08:00:00Z"))
+    journal.record(.stuck, at: utc("2026-10-15T08:00:00Z"))  // today: not a day yet
+
+    let days = journal.days(before: "2026-10-15")
+    t.expect(days.map(\.day) == ["2026-10-13", "2026-10-14"], "days are the finished UTC days, oldest first: \(days.map(\.day))")
+    t.expect(days.first == UsageDay(day: "2026-10-13", pushedOut: 2, stuck: 1, acrossDisplays: 0),
+             "the 13th sums its three lines: \(String(describing: days.first))")
+    t.expect(days.last == UsageDay(day: "2026-10-14", pushedOut: 0, stuck: 0, acrossDisplays: 1),
+             "the 14th has its one line: \(String(describing: days.last))")
+
+    journal.markAlive(at: utc("2026-10-14T09:00:00Z"))
+    journal.markAlive(at: utc("2026-10-16T09:00:00Z"))
+    journal.markAlive(at: utc("2026-10-16T10:00:00Z"))
+    let text = (try? String(contentsOf: journal.url, encoding: .utf8)) ?? ""
+    t.expect(text.components(separatedBy: "\"alive\"").count - 1 == 1,
+             "alive is written once, and only for a day with no line yet:\n\(text)")
+    t.expect(journal.days(before: "2026-10-17").map(\.day) == ["2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16"],
+             "an alive day is a day of use with zero counts")
+
+    journal.prune(day: "2026-10-13")
+    t.expect(journal.days(before: "2026-10-17").map(\.day) == ["2026-10-14", "2026-10-15", "2026-10-16"],
+             "pruning a day leaves the others")
+    t.expect(journal.days(before: "2026-10-17").first?.acrossDisplays == 1, "pruning kept the other days' lines intact")
+
+    // A half-written line is skipped, not fatal.
+    let handle = try! FileHandle(forWritingTo: journal.url)
+    _ = try! handle.seekToEnd()
+    try! handle.write(contentsOf: Data("{\"t\":\"2026-10-1".utf8))
+    try! handle.close()
+    t.expect(journal.days(before: "2026-10-17").count == 3, "a broken line is ignored")
+}
+
+/// The event as sent: the fields, numeric counts, and an ID that is the same
+/// for the same installation and day.
+func usageEvent(_ t: TestRun) {
+    let day = UsageDay(day: "2026-10-13", pushedOut: 11, stuck: 40, acrossDisplays: 3)
+    let data = UsageReport.event(for: day, installID: "abc", version: "0.1.0", apiKey: "phc_test")
+    let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+    let properties = object["properties"] as? [String: Any] ?? [:]
+
+    t.expect(object["event"] as? String == "day", "event name")
+    t.expect(object["distinct_id"] as? String == "abc", "distinct_id is the install ID")
+    t.expect(object["api_key"] as? String == "phc_test", "api_key")
+    t.expect(object["timestamp"] as? String == "2026-10-13T00:00:00Z", "timestamp is the day at midnight UTC")
+    t.expect(properties["pushedOut"] as? Int == 11 && properties["stuck"] as? Int == 40
+             && properties["acrossDisplays"] as? Int == 3, "counts are numbers: \(properties)")
+    t.expect(properties["version"] as? String == "0.1.0" && properties["day"] as? String == "2026-10-13", "version and day")
+    t.expect(properties["$geoip_disable"] as? Bool == true, "geo lookup is off")
+    t.expect(Set(properties.keys) == ["version", "day", "pushedOut", "stuck", "acrossDisplays", "$geoip_disable"],
+             "nothing else is sent: \(properties.keys.sorted())")
+    t.expect(Set(object.keys) == ["api_key", "event", "distinct_id", "uuid", "timestamp", "properties"],
+             "nothing else is sent at the top level: \(object.keys.sorted())")
+
+    let id = UsageReport.eventID(installID: "abc", day: "2026-10-13")
+    t.expect(id == UsageReport.eventID(installID: "abc", day: "2026-10-13"), "the event ID is deterministic")
+    t.expect(id != UsageReport.eventID(installID: "abc", day: "2026-10-14"), "another day, another ID")
+    t.expect(id != UsageReport.eventID(installID: "abd", day: "2026-10-13"), "another installation, another ID")
+    t.expect(UUID(uuidString: id) != nil && id.count == 36, "the ID is a UUID: \(id)")
+    t.expect(id.dropFirst(14).first == "5", "a version 5 UUID: \(id)")
+    t.expect(object["uuid"] as? String == id, "the event carries the ID")
+}
+
+/// Sending: finished days go oldest first, each is forgotten once accepted,
+/// a failure stops the run and keeps the journal, and the next try resumes.
+@MainActor
+func usageReporter(_ t: TestRun) {
+    let journal = temporaryJournal()
+    defer { journal.erase() }
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("dockfixer-usage-log-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let log = Log(directory: dir, level: .info)
+
+    journal.record(.pushedOut, at: utc("2026-10-13T10:00:00Z"))
+    journal.record(.stuck, at: utc("2026-10-14T10:00:00Z"))
+
+    final class Fake: @unchecked Sendable {
+        var sent: [String] = []
+        var failing = false
+    }
+    let fake = Fake()
+    let reporter = UsageReporter(journal: journal, installID: "abc", version: "0.1.0", apiKey: "k", log: log) { data in
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        let day = (object["properties"] as? [String: Any])?["day"] as? String ?? "?"
+        if fake.failing { return .failed("offline") }
+        fake.sent.append(day)
+        return .accepted
+    }
+
+    func flush(at time: String) {
+        var done = false
+        Task { @MainActor in
+            await reporter.flush(now: utc(time))
+            done = true
+        }
+        while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+    }
+
+    fake.failing = true
+    flush(at: "2026-10-15T09:00:00Z")
+    t.expect(fake.sent.isEmpty, "nothing counted as sent while offline")
+    t.expect(journal.days(before: "2026-10-15").count == 2, "a failed send keeps the journal")
+    t.expect(log.entries.contains { $0.detail.hasPrefix("usage not sent — 2026-10-13") }, "a failure is logged with the day")
+
+    fake.failing = false
+    flush(at: "2026-10-15T09:05:00Z")
+    t.expect(fake.sent.isEmpty, "a failed try is not repeated within ten minutes")
+
+    flush(at: "2026-10-15T10:00:00Z")
+    t.expect(fake.sent == ["2026-10-13", "2026-10-14"], "finished days are sent oldest first: \(fake.sent)")
+    t.expect(journal.days(before: "2026-10-15").isEmpty, "sent days leave the journal")
+    t.expect(journal.days(before: "2026-10-16").map(\.day) == ["2026-10-15"], "today was marked alive and stays")
+    t.expect(log.entries.contains { $0.detail == "usage sent — 2026-10-13: 1 pushed out, 0 stuck, 0 across displays" },
+             "a sent day is logged with its sums")
+
+    flush(at: "2026-10-15T11:00:00Z")
+    t.expect(fake.sent.count == 2, "nothing is sent twice")
+}

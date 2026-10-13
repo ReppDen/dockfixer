@@ -32,7 +32,7 @@ public final class DisplayWatcher {
     private let maxPolls = 10
     /// The waits, as a preset. Read at each use, so a change takes effect on
     /// the next notification.
-    public var timing: Timing = .standard
+    public var timing: Timing = .default
 
     /// Whether a Dock change of `dockNoise` or less is ignored. On, a Dock on
     /// the side of the display that breathes by a point or two as applications
@@ -171,8 +171,7 @@ public final class DisplayWatcher {
     }
 
     private func hold(after event: String) {
-        holdUntil = max(holdUntil, Date().addingTimeInterval(timing.hold))
-        log.info("\(event)" + (timing.hold > 0 ? " — Dock and display changes wait \(Int(timing.hold))s" : ""))
+        log.info(event)
     }
 
     // MARK: - Waiting
@@ -222,10 +221,7 @@ public final class DisplayWatcher {
         let previousFingerprint = ScreenMap.fingerprint(previousScreens)
         let started = burstStarted ?? Date()
 
-        if timing.debounce > 0 {
-            try? await Task.sleep(nanoseconds: UInt64(timing.debounce * 1_000_000_000))
-            if Task.isCancelled { return }
-        }
+
 
         var screens: [ScreenInfo]
         var settled: Bool
@@ -242,7 +238,7 @@ public final class DisplayWatcher {
             if !displayHoldGiven,
                classifyLayoutChange(previous: previousScreens, current: screens) == .displays {
                 displayHoldGiven = true
-                holdUntil = max(holdUntil, Date().addingTimeInterval(timing.hold))
+                holdUntil = max(holdUntil, Date())
             }
 
             let remaining = holdUntil.timeIntervalSinceNow

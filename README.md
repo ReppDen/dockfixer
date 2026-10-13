@@ -107,20 +107,17 @@ and the menu bar. The Dock's position is therefore never hardcoded: Docks on the
 left, right and bottom all work, an auto-hidden Dock correctly becomes a no-op,
 and moving or resizing the Dock triggers a pass of its own.
 
-### Three triggers, three switches
+### Two switches, and one for the external display
 
-| Switch | What starts a correction |
+| Switch | What it does |
 | --- | --- |
-| **When a window appears under the Dock** | An application opens a window underneath it, shows again windows it had hidden with ⌘H, or you switch to a Space where a window sits under the Dock. Only those windows are moved. |
-| **When the Dock changes size or position** | The Dock grows, shrinks or moves to another edge. Windows under it move out; windows next to it stay next to it. **Ignore changes of 4 points or less** is part of this one: a Dock on the side of the screen breathes by a point or two as apps open and quit, and with this on such changes move nothing. |
-| **When you connect or remove a display** | macOS shuffles windows between displays. **Fill the space the Dock leaves behind** is part of this one. |
-| **Turbo mode** | On by default. Windows move the moment the Dock or a display changes. Off, the app waits a few seconds for the layout to settle, which spares a window the odd second move at the cost of seconds under the Dock. |
+| **Move windows that are under the Dock** | A window under the Dock is moved out of it: one that opens there, one shown again after ⌘H or on a Space you switch to, and every window a Dock that grew or a display you plugged in or out left underneath. Off, nothing watches and nothing moves. |
+| **Stick windows to the Dock when it changes size or moves** | A window next to the Dock stays next to it as the Dock shrinks or moves to another edge, and a window within 16 points of the Dock (about 32 pixels) is put against it — a gap that small is a Dock's leftover, not where anyone parks a window. **Skip very small changes (about 8 pixels)** is part of this one: a Dock on the side of the screen breathes by a point or two as apps open and quit, and with this on such changes move nothing. |
+| **When the Dock moves to another display, fill the empty space with windows** | The Dock leaves a display for another one; windows on the display it left stretch into the strip it used. |
 
-On every pass, a window whose edge is within 16 points of the Dock is put
-against it: a gap that small is a Dock's leftover — the window sat against a
-thicker Dock on a display since unplugged, or on this one before an application
-quit and the Dock shrank — not somewhere anyone parks a window. A window
-further away is where you put it.
+Windows move the moment the Dock or a display changes: no waiting for the
+layout to settle. A Dock that goes on changing afterwards is simply another
+change, acted on in turn.
 
 macOS reports a Dock change and a display change with the same notification.
 DockFixer tells them apart by comparing the layout before and after: the same
@@ -211,7 +208,7 @@ the same layout you are.
 | Control | What it does |
 | --- | --- |
 | **Dock Settings…** | Opens System Settings → Desktop & Dock, where the Dock is moved and resized. |
-| **Move windows** — three switches | See [Three triggers, three switches](#three-triggers-three-switches). All on by default. The same switches are in the menu bar. |
+| **Move windows**, **External display** | See [Two switches, and one for the external display](#two-switches-and-one-for-the-external-display). All on by default. The same switches are in the menu bar. |
 | **Fix Windows Now** | Runs a pass immediately and says what it did underneath. Also in the menu bar. |
 | **Launch at login** | Registers DockFixer as a login item. macOS may ask you to allow it under System Settings → General → Login Items. |
 | **Hide menu bar icon** | Leaves the menu-bar item out. Off by default. |

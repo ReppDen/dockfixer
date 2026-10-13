@@ -128,6 +128,8 @@ struct ContentView: View {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 16) {
                 row("Screens") { screens }
                 row("Move windows") { dock }
+                row("External display") { externalDisplay }
+                row("") { fixNow }
                 row("Startup") {
                     Toggle("Launch at login", isOn: $state.launchAtLogin)
                 }
@@ -216,47 +218,43 @@ struct ContentView: View {
     private var dock: some View {
         VStack(alignment: .leading, spacing: 10) {
             // Each title finishes the sentence the row's name starts: "Move
-            // windows" · "when a window appears under the Dock". "Appears"
-            // rather than "opens": a window shown again after ⌘H, or on a
-            // Space just switched to, counts as well.
-            option(isOn: $state.newWindowsEnabled,
-                   title: "When a window appears under the Dock")
-            // Not "windows move with the Dock": a Dock that moves to another
-            // edge pushes windows out of its way, and nothing follows it there.
-            option(isOn: $state.dockChangesEnabled,
-                   title: "When the Dock changes size or position",
-                   detail: "Windows under it move out. Windows next to it stay next to it.")
+            // windows" · "that are under the Dock". Cut by what happens to a
+            // window, not by what set it off; the wording is kept to the
+            // simplest English that is still literally true.
+            option(isOn: $state.moveFromUnderDock,
+                   title: "Move windows that are under the Dock")
+            // "Stick" promises the window ends up against the Dock, which is
+            // true for one that was next to it or within a few points of it.
+            // A window in the middle of the screen is not read as "windows".
+            option(isOn: $state.stickToDock,
+                   title: "Stick windows to the Dock when it changes size or moves",
+                   enabled: state.moveFromUnderDock)
+            // Pixels, not points: points mean nothing to most people, and on
+            // a Retina display the number is twice the points.
             option(isOn: $state.ignoreSmallDockChanges,
-                   title: "Ignore changes of \(Int(dockNoise)) points or less",
-                   detail: "A Dock on the side of the screen grows and shrinks a little as apps open and quit.",
-                   enabled: state.dockChangesEnabled)
+                   title: "Skip very small changes (about \(Int(dockNoise) * 2) pixels)",
+                   enabled: state.moveFromUnderDock && state.stickToDock)
                 .padding(.leading, 20)
-            option(isOn: $state.displayChangesEnabled,
-                   title: "When you connect or remove a display")
-            option(isOn: $state.reclaimEnabled,
-                   // No edge named: the Dock can sit on any side.
-                   title: "Fill the space the Dock leaves behind",
-                   detail: "If the Dock moves to another display, windows stretch into the gap.",
-                   // Only display changes take the Dock to another display.
-                   enabled: state.displayChangesEnabled)
-                .padding(.leading, 20)
+        }
+    }
 
-            option(isOn: $state.turboEnabled,
-                   title: "Turbo mode",
-                   detail: "Windows move the moment the Dock or a display changes. Off, the app waits a few seconds for the layout to settle.")
+    private var externalDisplay: some View {
+        option(isOn: $state.fillAcrossDisplays,
+               title: "When the Dock moves to another display, fill the empty space with windows",
+               enabled: state.moveFromUnderDock)
+    }
 
-            // The result goes under the button rather than beside it, where a
-            // longer sentence had no room.
-            VStack(alignment: .leading, spacing: 6) {
-                Button { state.moveWindows() } label: {
-                    Label(state.isBusy ? "Fixing…" : "Fix Windows Now", systemImage: "wrench.and.screwdriver")
-                }
-                    .buttonStyle(SoftButtonStyle(emphasised: true))
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(state.isBusy)
-                activity
+    private var fixNow: some View {
+        // The result goes under the button rather than beside it, where a
+        // longer sentence had no room.
+        VStack(alignment: .leading, spacing: 6) {
+            Button { state.moveWindows() } label: {
+                Label(state.isBusy ? "Fixing…" : "Fix Windows Now", systemImage: "wrench.and.screwdriver")
             }
-            .padding(.top, 2)
+                .buttonStyle(SoftButtonStyle(emphasised: true))
+                .keyboardShortcut(.defaultAction)
+                .disabled(state.isBusy)
+            activity
         }
     }
 
@@ -360,7 +358,12 @@ struct ContentView: View {
                         detail: String? = nil,
                         enabled: Bool = true) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Toggle(title, isOn: isOn)
+            // A title longer than the column wraps rather than being cut
+            // with an ellipsis: a sentence is the point of these.
+            Toggle(isOn: isOn) {
+                Text(title)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let detail {
                 Text(detail)
                     .font(.caption)

@@ -120,6 +120,21 @@ public final class WindowScanner: Sendable {
         let name: String
     }
 
+    /// Which windows a pass may move towards the Dock, as opposed to out from
+    /// under it. Moving a window nothing overlaps is the bigger liberty, so
+    /// each kind answers to a switch of its own.
+    public struct Follow: OptionSet, Sendable {
+        public let rawValue: Int
+        public init(rawValue: Int) { self.rawValue = rawValue }
+        /// Windows on the same display as the Dock: against it when it
+        /// shrinks or moves to another edge, and the magnet (`dockSnap`).
+        public static let sameDisplay = Follow(rawValue: 1)
+        /// Windows on a display the Dock has left for another one, into the
+        /// strip it vacated.
+        public static let acrossDisplays = Follow(rawValue: 2)
+        public static let all: Follow = [.sameDisplay, .acrossDisplays]
+    }
+
     /// Snapshot of the display layout and the running applications, both of
     /// which must be read on the main thread, followed by the Accessibility work
     /// on a background queue.
@@ -146,6 +161,7 @@ public final class WindowScanner: Sendable {
     public func run(dryRun: Bool = false,
                     previousScreens: [ScreenInfo]? = nil,
                     slack: CGFloat = dockNoise,
+                    follow: Follow = .all,
                     debugDetail: Bool = false,
                     completion: @escaping (ScanSummary) -> Void) {
         let screens = ScreenMap.current()
@@ -157,6 +173,7 @@ public final class WindowScanner: Sendable {
                                     previousScreens: previousScreens,
                                     dryRun: dryRun,
                                     slack: slack,
+                                    follow: follow,
                                     debugDetail: debugDetail)
             DispatchQueue.main.async { completion(summary) }
         }
@@ -247,6 +264,7 @@ public final class WindowScanner: Sendable {
                       previousScreens: [ScreenInfo]?,
                       dryRun: Bool,
                       slack: CGFloat,
+                      follow: Follow,
                       debugDetail: Bool = false) -> ScanSummary {
         var summary = ScanSummary()
 
@@ -264,7 +282,16 @@ public final class WindowScanner: Sendable {
             return summary
         }
 
-        let reclaim = previousScreens.map { reclaims(previous: $0, current: screens) } ?? [:]
+        // A display the Dock left altogether is the across-displays case; a
+        // Dock still on the display, thinner or on another edge, the same-
+        // display one.
+        let reclaim = (previousScreens.map { reclaims(previous: $0, current: screens) } ?? [:])
+            .filter { displayID, _ in
+                let hadDock = previousScreens?.first { $0.displayID == displayID }?.dockSide != nil
+                let hasDock = screens.first { $0.displayID == displayID }?.dockSide != nil
+                return hadDock && !hasDock ? follow.contains(.acrossDisplays) : follow.contains(.sameDisplay)
+            }
+        let snap = follow.contains(.sameDisplay) ? dockSnap : 0
         if debugDetail {
             note("DockFixer", "", "pass — dry run: \(dryRun), previous layout: \(previousScreens == nil ? "none" : "known")")
             for screen in screens {
@@ -295,7 +322,7 @@ public final class WindowScanner: Sendable {
         perApp.withUnsafeMutableBufferPointer { buffer in
             DispatchQueue.concurrentPerform(iterations: apps.count) { index in
                 buffer[index] = decide(app: apps[index], screens: screens, reclaim: reclaim,
-                                       slack: slack, snap: dockSnap, debugDetail: debugDetail)
+                                       slack: slack, snap: snap, debugDetail: debugDetail)
             }
         }
 
@@ -307,7 +334,7 @@ public final class WindowScanner: Sendable {
         for index in perApp.indices where perApp[index] == nil {
             usleep(100_000)
             perApp[index] = decide(app: apps[index], screens: screens, reclaim: reclaim,
-                                   slack: slack, snap: dockSnap, debugDetail: debugDetail, retry: true)
+                                   slack: slack, snap: snap, debugDetail: debugDetail, retry: true)
         }
 
         var plans: [Plan] = []

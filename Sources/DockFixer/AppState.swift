@@ -35,6 +35,32 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// A Dock on the side of the display breathes by a point or two as
+    /// applications open and quit. On, such changes move nothing and a window
+    /// within the same distance of the Dock is left alone; off, every change
+    /// is acted on and windows follow the Dock's exact edge. Off for now, to
+    /// see how the exact behaviour feels day to day.
+    @Published var ignoreSmallDockChanges: Bool {
+        didSet {
+            guard oldValue != ignoreSmallDockChanges else { return }
+            UserDefaults.standard.set(ignoreSmallDockChanges, forKey: Self.ignoreSmallDockChangesKey)
+            log.info("ignore Dock changes of \(Int(dockNoise))pt or less: \(ignoreSmallDockChanges ? "enabled" : "disabled")")
+            watcher?.ignoreSmallDockChanges = ignoreSmallDockChanges
+        watcher?.timing = timing
+        }
+    }
+
+    /// No waiting: see `Timing`. On by default — the waits were insurance
+    /// against moving a window twice, and twice beats seconds under the Dock.
+    @Published var turboEnabled: Bool {
+        didSet {
+            guard oldValue != turboEnabled else { return }
+            UserDefaults.standard.set(turboEnabled, forKey: Self.turboKey)
+            log.info("turbo mode: \(turboEnabled ? "enabled" : "disabled")")
+            watcher?.timing = timing
+        }
+    }
+
     /// A display is connected or removed, and macOS shuffles windows under the
     /// Dock. On by default: this is what the app was first made for.
     @Published var displayChangesEnabled: Bool {
@@ -102,15 +128,14 @@ final class AppState: ObservableObject {
 
     private static let newWindowsKey = "moveNewWindows"
     private static let dockChangesKey = "moveOnDockChange"
+    private static let ignoreSmallDockChangesKey = "ignoreSmallDockChanges"
+    private static let turboKey = "turboMode"
     private static let displayChangesKey = "autoFixOnDisplayChange"
     private static let reclaimKey = "followDockOffDisplay"
     private static let hideMenuBarIconKey = "hideMenuBarIcon"
     /// How long to wait before repeating a pass that could not read the windows.
     private static let retryDelays: [TimeInterval] = [0.75, 1.5, 3]
-    /// How long a new window is left alone before it is checked. It is
-    /// announced the moment it exists, which is before its application has
-    /// finished placing and sizing it.
-    private static let newWindowDelay: TimeInterval = 0.3
+    private var timing: Timing { turboEnabled ? .turbo : .standard }
     private let scanner = WindowScanner()
     private var watcher: DisplayWatcher?
     private var windowWatcher: WindowWatcher?
@@ -139,12 +164,16 @@ final class AppState: ObservableObject {
         UserDefaults.standard.register(defaults: [
             Self.newWindowsKey: true,
             Self.dockChangesKey: true,
+            Self.ignoreSmallDockChangesKey: false,
+            Self.turboKey: true,
             Self.displayChangesKey: true,
             Self.reclaimKey: true,
             Self.hideMenuBarIconKey: false,
         ])
         newWindowsEnabled = UserDefaults.standard.bool(forKey: Self.newWindowsKey)
         dockChangesEnabled = UserDefaults.standard.bool(forKey: Self.dockChangesKey)
+        ignoreSmallDockChanges = UserDefaults.standard.bool(forKey: Self.ignoreSmallDockChangesKey)
+        turboEnabled = UserDefaults.standard.bool(forKey: Self.turboKey)
         displayChangesEnabled = UserDefaults.standard.bool(forKey: Self.displayChangesKey)
         reclaimEnabled = UserDefaults.standard.bool(forKey: Self.reclaimKey)
         hideMenuBarIcon = UserDefaults.standard.bool(forKey: Self.hideMenuBarIconKey)
@@ -181,9 +210,13 @@ final class AppState: ObservableObject {
             }
             run(trigger: reason)
         }
+        watcher?.ignoreSmallDockChanges = ignoreSmallDockChanges
+        watcher?.timing = timing
 
         windowWatcher = WindowWatcher(log: log) { [weak self] window, pid, appName in
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.newWindowDelay) {
+            // A window is announced the moment it exists, which is before its
+            // application has finished placing and sizing it.
+            DispatchQueue.main.asyncAfter(deadline: .now() + (self?.timing.newWindow ?? 0)) {
                 MainActor.assumeIsolated {
                     self?.fixNewWindow(window, pid: pid, appName: appName)
                 }
@@ -196,6 +229,7 @@ final class AppState: ObservableObject {
         log.info("DockFixer ready — \(displaysSummary)")
         log.info("launch at login: \(LoginItem.statusDescription)")
         log.info("move windows — new windows: \(onOff(newWindowsEnabled)), Dock changes: \(onOff(dockChangesEnabled))"
+            + " (ignoring \(Int(dockNoise))pt or less: \(onOff(ignoreSmallDockChanges)), turbo: \(onOff(turboEnabled)))"
             + ", display changes: \(onOff(displayChangesEnabled)), fill the space the Dock leaves: \(onOff(reclaimEnabled))")
 
         if !isTrusted {
@@ -262,13 +296,18 @@ final class AppState: ObservableObject {
 
     private func onOff(_ value: Bool) -> String { value ? "on" : "off" }
 
+    /// The two filters have to agree: a window left alone because it sticks out
+    /// by less than the Dock is allowed to breathe, and a Dock change ignored
+    /// for being that small, are the same tolerance seen from two sides.
+    private var slack: CGFloat { ignoreSmallDockChanges ? dockNoise : 0 }
+
     /// Not a pass: only the window that opened is looked at, so it neither
     /// waits for one that is running nor uses up the layout a display change
     /// left behind. Silent when the window was fine, which is nearly always.
     private func fixNewWindow(_ window: AXUIElement, pid: pid_t, appName: String) {
         guard isTrusted else { return }
         scanner.run(window: window, pid: pid, appName: appName,
-                    debugDetail: log.isDebug) { [weak self] summary in
+                    slack: slack, debugDetail: log.isDebug) { [weak self] summary in
             guard let self else { return }
             record(summary)
             if summary.candidates > 0 {
@@ -305,7 +344,7 @@ final class AppState: ObservableObject {
             + (attempt > 0 ? ", attempt \(attempt + 1)" : "")
             + (previousScreens == nil ? ", no layout to compare against" : ", comparing against the layout before the change"))
 
-        scanner.run(previousScreens: previousScreens, debugDetail: log.isDebug) { [weak self] summary in
+        scanner.run(previousScreens: previousScreens, slack: slack, debugDetail: log.isDebug) { [weak self] summary in
             guard let self else { return }
             record(summary)
             // One line per pass, at the end, when there is something to report.

@@ -97,12 +97,17 @@ public func computeFix(window: CGRect,
                        visible: CGRect,
                        reclaim: ReclaimedSpace?,
                        slack: CGFloat = 0,
+                       snap: CGFloat = 0,
+                       dockSide: DockSide? = nil,
                        tolerance: CGFloat = 0.5) -> WindowFix? {
     guard window.width > 0, window.height > 0,
           visible.width > 0, visible.height > 0
     else { return nil }
 
-    let desired = reclaim.map { reclaimedRect(for: window, in: $0) } ?? window
+    var desired = reclaim.map { reclaimedRect(for: window, in: $0) } ?? window
+    if let dockSide, snap > 0 {
+        desired = snappedToDock(desired, visible: visible, side: dockSide, within: snap, tolerance: tolerance)
+    }
 
     // Only a window the reclaim left alone gets the allowance. One that is
     // being moved anyway is moved to exactly the right place, so the slack
@@ -122,6 +127,47 @@ public func computeFix(window: CGRect,
         shrink: CGSize(width: window.width - fixed.width, height: window.height - fixed.height),
         clamped: clamped
     )
+}
+
+/// The window against the Dock, if its edge on the Dock's side is within
+/// `snap` of it; otherwise the window unchanged.
+///
+/// The same two moves as the reclaim, decided by the same observation: a
+/// window reaching the opposite edge of the usable area is maximised along
+/// that axis and is stretched to close the gap, any other is slid. A window
+/// already against the Dock, or further away than `snap`, is not touched —
+/// which is what makes this safe to apply on every pass.
+public func snappedToDock(_ window: CGRect,
+                          visible: CGRect,
+                          side: DockSide,
+                          within snap: CGFloat,
+                          tolerance: CGFloat = 0.5) -> CGRect {
+    var rect = window
+    switch side {
+    case .left:
+        let gap = window.minX - visible.minX
+        guard gap > tolerance, gap <= snap else { return window }
+        rect.origin.x = visible.minX
+        if window.maxX >= visible.maxX - tolerance { rect.size.width += gap }
+    case .right:
+        let gap = visible.maxX - window.maxX
+        guard gap > tolerance, gap <= snap else { return window }
+        if window.minX <= visible.minX + tolerance {
+            rect.size.width += gap
+        } else {
+            rect.origin.x += gap
+        }
+    case .bottom:
+        // Accessibility space: y grows downwards, the bottom edge is `maxY`.
+        let gap = visible.maxY - window.maxY
+        guard gap > tolerance, gap <= snap else { return window }
+        if window.minY <= visible.minY + tolerance {
+            rect.size.height += gap
+        } else {
+            rect.origin.y += gap
+        }
+    }
+    return rect
 }
 
 public extension CGRect {

@@ -16,6 +16,8 @@ run.suite("Reclaim: result always inside usable area", reclaimAlwaysInside)
 run.suite("Dock noise: windows a few points out are left alone", dockNoiseSlack)
 run.suite("Dock noise: measuring a Dock change", dockNoiseMeasure)
 run.suite("Dock noise: a day of a wandering Dock", dockNoiseDay)
+run.suite("Snap: windows a few points from the Dock are put against it", snapToDock)
+run.suite("Snap: which side the Dock is on", snapDockSide)
 run.suite("ScreenMap: coordinate conversion", screenMapConversion)
 run.suite("Log: levels per build") { t in MainActor.assumeIsolated { logLevels(t) } }
 run.suite("ScreenMap: telling a Dock change from a display change", screenMapLayoutChange)

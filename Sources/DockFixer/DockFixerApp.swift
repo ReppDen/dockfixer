@@ -127,6 +127,7 @@ private struct MenuContent: View {
             Toggle("When You Connect or Remove a Display", isOn: $state.displayChangesEnabled)
             Toggle("Fill the Space the Dock Leaves Behind", isOn: $state.reclaimEnabled)
                 .disabled(!state.displayChangesEnabled)
+            Toggle("Turbo Mode", isOn: $state.turboEnabled)
         }
 
         Divider()

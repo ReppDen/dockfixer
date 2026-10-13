@@ -226,6 +226,11 @@ struct ContentView: View {
             option(isOn: $state.dockChangesEnabled,
                    title: "When the Dock changes size or position",
                    detail: "Windows under it move out. Windows next to it stay next to it.")
+            option(isOn: $state.ignoreSmallDockChanges,
+                   title: "Ignore changes of \(Int(dockNoise)) points or less",
+                   detail: "A Dock on the side of the screen grows and shrinks a little as apps open and quit.",
+                   enabled: state.dockChangesEnabled)
+                .padding(.leading, 20)
             option(isOn: $state.displayChangesEnabled,
                    title: "When you connect or remove a display")
             option(isOn: $state.reclaimEnabled,
@@ -235,6 +240,10 @@ struct ContentView: View {
                    // Only display changes take the Dock to another display.
                    enabled: state.displayChangesEnabled)
                 .padding(.leading, 20)
+
+            option(isOn: $state.turboEnabled,
+                   title: "Turbo mode",
+                   detail: "Windows move the moment the Dock or a display changes. Off, the app waits a few seconds for the layout to settle.")
 
             // The result goes under the button rather than beside it, where a
             // longer sentence had no room.

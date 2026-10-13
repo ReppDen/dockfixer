@@ -112,8 +112,15 @@ and moving or resizing the Dock triggers a pass of its own.
 | Switch | What starts a correction |
 | --- | --- |
 | **When a window appears under the Dock** | An application opens a window underneath it, shows again windows it had hidden with ⌘H, or you switch to a Space where a window sits under the Dock. Only those windows are moved. |
-| **When the Dock changes size or position** | The Dock grows, shrinks or moves to another edge. Windows under it move out; windows next to it stay next to it. |
+| **When the Dock changes size or position** | The Dock grows, shrinks or moves to another edge. Windows under it move out; windows next to it stay next to it. **Ignore changes of 4 points or less** is part of this one: a Dock on the side of the screen breathes by a point or two as apps open and quit, and with this on such changes move nothing. |
 | **When you connect or remove a display** | macOS shuffles windows between displays. **Fill the space the Dock leaves behind** is part of this one. |
+| **Turbo mode** | On by default. Windows move the moment the Dock or a display changes. Off, the app waits a few seconds for the layout to settle, which spares a window the odd second move at the cost of seconds under the Dock. |
+
+On every pass, a window whose edge is within 16 points of the Dock is put
+against it: a gap that small is a Dock's leftover — the window sat against a
+thicker Dock on a display since unplugged, or on this one before an application
+quit and the Dock shrank — not somewhere anyone parks a window. A window
+further away is where you put it.
 
 macOS reports a Dock change and a display change with the same notification.
 DockFixer tells them apart by comparing the layout before and after: the same

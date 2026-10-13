@@ -27,17 +27,18 @@ public final class DisplayWatcher {
     /// to be, which is what tells `reclaims` how much space a display regained.
     public typealias Handler = (String, [ScreenInfo]) -> Void
 
-    private let debounceNanos: UInt64 = 600_000_000
-    private let pollNanos: UInt64 = 300_000_000
     /// Two identical readings in a row mean the layout has settled.
     private let requiredStableReadings = 2
     private let maxPolls = 10
-    /// How long the layout is left alone after a display change, a wake or an
-    /// unlock. The Dock took four seconds to settle after an unplug.
-    private let holdSeconds: TimeInterval = 5
-    /// However the notifications keep coming, a change is handed over within
-    /// this long of the first one.
-    private let maxWaitSeconds: TimeInterval = 20
+    /// The waits, as a preset. Read at each use, so a change takes effect on
+    /// the next notification.
+    public var timing: Timing = .standard
+
+    /// Whether a Dock change of `dockNoise` or less is ignored. On, a Dock on
+    /// the side of the display that breathes by a point or two as applications
+    /// open and quit moves nothing; off, every change is handed over, however
+    /// small, and windows follow the Dock's exact edge.
+    public var ignoreSmallDockChanges = true
 
     private let log: Log
     private let handler: Handler
@@ -170,8 +171,8 @@ public final class DisplayWatcher {
     }
 
     private func hold(after event: String) {
-        holdUntil = max(holdUntil, Date().addingTimeInterval(holdSeconds))
-        log.info("\(event) — Dock and display changes wait \(Int(holdSeconds))s")
+        holdUntil = max(holdUntil, Date().addingTimeInterval(timing.hold))
+        log.info("\(event)" + (timing.hold > 0 ? " — Dock and display changes wait \(Int(timing.hold))s" : ""))
     }
 
     // MARK: - Waiting
@@ -199,7 +200,7 @@ public final class DisplayWatcher {
         if fingerprint != baseline { burstSawAChange = true }
 
         while stableReadings < requiredStableReadings, polls < maxPolls {
-            try? await Task.sleep(nanoseconds: pollNanos)
+            try? await Task.sleep(nanoseconds: UInt64(timing.poll * 1_000_000_000))
             if Task.isCancelled { return nil }
             polls += 1
 
@@ -221,8 +222,10 @@ public final class DisplayWatcher {
         let previousFingerprint = ScreenMap.fingerprint(previousScreens)
         let started = burstStarted ?? Date()
 
-        try? await Task.sleep(nanoseconds: debounceNanos)
-        if Task.isCancelled { return }
+        if timing.debounce > 0 {
+            try? await Task.sleep(nanoseconds: UInt64(timing.debounce * 1_000_000_000))
+            if Task.isCancelled { return }
+        }
 
         var screens: [ScreenInfo]
         var settled: Bool
@@ -239,11 +242,11 @@ public final class DisplayWatcher {
             if !displayHoldGiven,
                classifyLayoutChange(previous: previousScreens, current: screens) == .displays {
                 displayHoldGiven = true
-                holdUntil = max(holdUntil, Date().addingTimeInterval(holdSeconds))
+                holdUntil = max(holdUntil, Date().addingTimeInterval(timing.hold))
             }
 
             let remaining = holdUntil.timeIntervalSinceNow
-            guard remaining > 0, Date().timeIntervalSince(started) < maxWaitSeconds else { break }
+            guard remaining > 0, Date().timeIntervalSince(started) < timing.maxWait else { break }
             log.debug("holding for \(String(format: "%.1f", remaining))s before looking again")
             try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
             if Task.isCancelled { return }
@@ -275,13 +278,13 @@ public final class DisplayWatcher {
         case .dock:
             let shift = largestEdgeShift(previous: previousScreens, current: screens)
             let what = describeDockChange(previous: previousScreens, current: screens)
-            guard shift > dockNoise else {
+            guard shift > dockNoise || !ignoreSmallDockChanges else {
                 // `lastScreens` stays where it was on purpose: see its comment.
                 log.info("the Dock changed by \(Int(shift.rounded()))pt (\(what)) — "
                     + "\(Int(dockNoise))pt or less, windows left alone")
                 return
             }
-            note = "the Dock changed (\(what))"
+            note = "the Dock changed by \(Int(shift.rounded()))pt (\(what))"
         case .displays:
             note = "displays changed: \(previousScreens.count) -> \(screens.count)"
         }

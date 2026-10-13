@@ -37,16 +37,32 @@ public struct ScreenInfo: Equatable, Sendable {
                      right: axFrame.maxX - axVisibleFrame.maxX)
     }
 
-    /// Which edge the Dock sits on, inferred from the insets. The top inset is
-    /// the menu bar, so it is never a candidate.
+    /// Which edge the Dock sits on, inferred from the insets, or `nil` when
+    /// it is hidden. The top inset is the menu bar, so it is never a candidate.
+    public var dockSide: DockSide? {
+        let i = insets
+        let candidates: [(DockSide, CGFloat)] = [(.left, i.left), (.right, i.right), (.bottom, i.bottom)]
+        guard let winner = candidates.max(by: { $0.1 < $1.1 }), winner.1 > 1 else { return nil }
+        return winner.0
+    }
+
+    /// The Dock's edge and thickness, for the log.
     public var dockEdge: String {
         let i = insets
-        let candidates = [("left", i.left), ("right", i.right), ("bottom", i.bottom)]
-        guard let winner = candidates.max(by: { $0.1 < $1.1 }), winner.1 > 1 else {
-            return "hidden"
+        guard let side = dockSide else { return "hidden" }
+        let thickness: CGFloat
+        switch side {
+        case .left: thickness = i.left
+        case .right: thickness = i.right
+        case .bottom: thickness = i.bottom
         }
-        return "\(winner.0) \(Int(winner.1.rounded()))pt"
+        return "\(side) \(Int(thickness.rounded()))pt"
     }
+}
+
+/// An edge of a display the Dock can sit on.
+public enum DockSide: String, Sendable {
+    case left, right, bottom
 }
 
 /// Converts a rect between Cocoa's bottom-left origin and the Accessibility
@@ -165,6 +181,15 @@ public func classifyLayoutChange(previous: [ScreenInfo], current: [ScreenInfo]) 
 /// Dock that is a few points thicker than the last arrangement does not get
 /// windows pushed by the next pass either.
 public let dockNoise: CGFloat = 4
+
+/// A window whose edge is this close to the Dock, on the Dock's side, is
+/// put against it. A gap this small is not where anyone puts a window: it
+/// is a window that was against a thicker Dock — on a display just unplugged,
+/// or on this one before an application quit and the Dock shrank — and was
+/// carried over with the same coordinates. Found in the log after a TV was
+/// unplugged: windows 2–15pt from the laptop's Dock, every one of them at the
+/// thickness of the TV's.
+public let dockSnap: CGFloat = 16
 
 /// The furthest any edge of a visible frame moved between two layouts, over
 /// the displays present in both.

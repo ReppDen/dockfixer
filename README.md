@@ -262,7 +262,7 @@ Turning the switch off deletes the file and the ID. A build without a project
 key — a fork, a plain `swift build` — sends nothing at all; the key goes in
 through `make app USAGE_KEY=…`. The whole thing is one file,
 `Sources/DockFixerCore/Usage.swift`. The numbers it adds up to are public:
-_dashboard link to follow_.
+[the DockFixer dashboard](https://eu.posthog.com/shared/O63pcUH2gzDFECtm1r3HAublIhL13w).
 
 ## Logs
 

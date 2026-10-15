@@ -17,8 +17,12 @@ jobs:
         run: make test
 
       - name: Package
-        # The tag drives the version so the bundle and the release agree.
-        run: make zip VERSION="${GITHUB_REF_NAME#v}"
+        # The tag drives the version so the bundle and the release agree. The
+        # PostHog key is a repository secret rather than a line in the Makefile,
+        # so a fork's release sends nothing to this project unless it sets its own.
+        env:
+          USAGE_KEY: ${{ secrets.USAGE_KEY }}
+        run: make zip VERSION="${GITHUB_REF_NAME#v}" USAGE_KEY="$USAGE_KEY"
 
       - name: Checksum
         id: sum

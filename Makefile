@@ -18,11 +18,12 @@ SIGN_IDENTITY ?= -
 # event rather than a running commentary.
 LOG_LEVEL ?= info
 
-# PostHog project keys for the usage statistics (Usage.swift): one project for
-# releases, one for local builds, so that a day of development is not a day
-# of use. Write-only keys, so they can live here. Empty means nothing is sent.
-USAGE_KEY     ?=
-DEV_USAGE_KEY ?=
+# PostHog project key for the usage statistics (Usage.swift). One project for
+# every build: a development Mac is one more installation, and on the free plan
+# a second project would need a card. The key is write-only, but it stays out of
+# the repository so that a fork sends nothing here; a release gets it from the
+# USAGE_KEY secret, a local build from the environment. Empty means nothing is sent.
+USAGE_KEY ?=
 
 BUILD_DIR := build
 APP       := $(BUILD_DIR)/$(APP_NAME).app
@@ -43,7 +44,7 @@ dev-cert:
 
 ## dev: build and install signed with the local identity, with debug logging, so the Accessibility grant survives rebuilds
 dev: dev-cert
-	$(MAKE) install SIGN_IDENTITY="$(DEV_IDENTITY)" LOG_LEVEL=debug USAGE_KEY="$(DEV_USAGE_KEY)"
+	$(MAKE) install SIGN_IDENTITY="$(DEV_IDENTITY)" LOG_LEVEL=debug USAGE_KEY="$(USAGE_KEY)"
 
 ## icon: draw the app icon and build AppIcon.icns
 icon: $(ICNS)

@@ -28,16 +28,15 @@ cask "dockfixer" do
   end
 
   auto_updates true
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   app "DockFixer.app"
 
   # The app is signed with a self-signed certificate and not notarised, so
   # Gatekeeper refuses a quarantined copy. Updates arrive through Sparkle,
   # which does not quarantine what it installs.
-  postflight do
-    system_command "/usr/bin/xattr",
-                   args: ["-dr", "com.apple.quarantine", "#{appdir}/DockFixer.app"]
+  postflight_steps do
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/DockFixer.app"]
   end
 
   uninstall quit: "com.github.reppden.dockfixer"

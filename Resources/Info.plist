@@ -39,6 +39,21 @@
 	     the switch stays but nothing is sent — a fork sends nothing to us. -->
 	<key>DockFixerUsageKey</key>
 	<string>__USAGE_KEY__</string>
+	<!-- Sparkle, see Updater.swift. Checked once a day; every update is
+	     downloaded, verified against the EdDSA key before it is unpacked, and
+	     installed without asking. A build with an empty feed does not check. -->
+	<key>SUFeedURL</key>
+	<string>__FEED_URL__</string>
+	<key>SUPublicEDKey</key>
+	<string>__ED_PUBLIC_KEY__</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
 	<!-- Deliberately not LSUIElement: with its window open DockFixer is a normal
 	     application, with a Dock icon and an entry in the app switcher. Closing
 	     the window does not quit it — the watcher has to keep running — so it

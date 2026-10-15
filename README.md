@@ -133,6 +133,12 @@ Windows you move yourself are never touched by any of them.
 
 ## Install
 
+### With Homebrew
+
+```sh
+brew install reppden/tap/dockfixer
+```
+
 ### From a release
 
 Download the latest `.zip` from
@@ -144,9 +150,11 @@ xattr -dr com.apple.quarantine /Applications/DockFixer.app
 open /Applications/DockFixer.app
 ```
 
-The `xattr` line is required. Release builds are ad-hoc signed, not notarised
-with an Apple Developer ID, so without it macOS refuses to open the app and sends
-you to System Settings → Privacy & Security → *Open Anyway*.
+The `xattr` line is required. Release builds are signed with the project's own
+certificate, not notarised with an Apple Developer ID, so without it macOS
+refuses to open the app and sends you to System Settings → Privacy & Security →
+*Open Anyway*. Homebrew does this step for you. It is needed once: updates
+arrive through the app itself (see [Updates](#updates)).
 
 ### From source
 
@@ -212,6 +220,7 @@ the same layout you are.
 | **Fix Windows Now** | Runs a pass immediately and says what it did underneath. Also in the menu bar. |
 | **Launch at login** | Registers DockFixer as a login item. macOS may ask you to allow it under System Settings → General → Login Items. |
 | **Hide menu bar icon** | Leaves the menu-bar item out. Off by default. |
+| **Install updates automatically** | On by default. See [Updates](#updates). **Check for Updates…** checks right now; it is in the menu bar too. |
 | **Send anonymous usage statistics** | One line a day about how many windows were moved. On by default; see [What DockFixer sends](#what-dockfixer-sends) for the whole of it. |
 | **GitHub · Report a Bug · Ask a Question** | The repository, a new issue with the version, macOS and Dock position filled in, and Discussions. |
 | **Show Log** | Opens the log in a window of its own, with Copy, Clear and Reveal in Finder. |
@@ -225,6 +234,26 @@ An automatic pass does not fire the instant a display disappears. macOS sends th
 change notification several times in a burst, and WindowServer goes on relocating
 windows afterwards, so DockFixer waits for the layout to stop changing before
 acting.
+
+## Updates
+
+DockFixer updates itself with [Sparkle](https://sparkle-project.org). Once a
+day it reads `appcast.xml` from the
+[latest release](https://github.com/ReppDen/dockfixer/releases/latest) — a plain
+download from GitHub, nothing about you or your Mac goes with it. When there is
+a newer version, it is downloaded, checked against the project's EdDSA key, and
+installed: straight away if the DockFixer window is closed, otherwise as soon as
+you close it. The app restarts into the menu bar, as it does at login. Each step
+is a line in the log (`updates: …`).
+
+The Accessibility permission stays across updates. macOS ties it to the app's
+signature, and every release is signed with the same certificate; the release
+workflow refuses to publish a build signed with anything else.
+
+Turn **Install updates automatically** off and DockFixer still checks once a
+day, but asks before installing. A Homebrew install updates the same way —
+the cask is marked `auto_updates`, so `brew upgrade` leaves it to the app. A
+build from source (`make dev`) never updates itself.
 
 ## What DockFixer sends
 
@@ -339,9 +368,10 @@ all; these are reported as `SKIP` or `FAIL` rather than being retried forever.
   will not ask you to do. Instead, switching to a Space counts as its windows
   appearing: the ones under the Dock are moved then, if **When a window appears
   under the Dock** is on.
-- **Not notarised.** Release builds are ad-hoc signed, so the first launch needs
-  the `xattr` command above, and the Accessibility permission has to be granted
-  again after an update. Building from source with `make dev` avoids both.
+- **Not notarised.** Release builds are signed with the project's own
+  certificate rather than an Apple Developer ID, so the first launch needs the
+  `xattr` command above (Homebrew runs it for you). Updates after that need
+  nothing.
 - **Stubborn applications.** Some windows refuse to move or resize through the
   Accessibility API. They are reported, never silently dropped.
 - **Minimum window sizes.** Narrowing can fail when an application enforces a
@@ -378,9 +408,11 @@ make help       # list targets
 | `Sources/DockFixerCore/WindowWatcher.swift` | Notices new windows, so one opened under the Dock is moved at once. |
 | `Sources/DockFixerCore/Log.swift` | File log and the in-memory buffer the window renders. |
 | `Sources/DockFixer/` | SwiftUI window, menu-bar item, app state. |
+| `Sources/DockFixer/Updater.swift` | Sparkle: when an update is installed, and the quiet restart after it. |
 | `Tests/DockFixerTests/` | Unit tests. |
 | `Scripts/make-icon.swift` | Draws the app icon — its source. `docs/icon.png` is a rendered copy for this README (`make readme-icon`). |
 | `Scripts/dev-cert.sh` | Creates the local code-signing identity. |
+| `Scripts/appcast.sh`, `Scripts/cask.sh` | Write the Sparkle feed and the Homebrew cask for a release; run by `.github/workflows/release.yml`. |
 | `Resources/github-mark.pdf` | The GitHub mark on the GitHub button, from Octicons. |
 
 ### Notes for contributors

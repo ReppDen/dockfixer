@@ -115,6 +115,9 @@ final class AppState: ObservableObject {
 
     let log: Log
 
+    /// Sparkle, behind the "Updates" row and the menu item.
+    let updater: Updater
+
     /// The live instance, for the app delegate: it runs before this is built and
     /// has no way to be handed a reference, but it has decisions worth logging.
     private(set) static weak var current: AppState?
@@ -157,6 +160,7 @@ final class AppState: ObservableObject {
 
     init() {
         log = Log()
+        updater = Updater(log: log)
         UserDefaults.standard.register(defaults: [
             Self.moveFromUnderDockKey: true,
             Self.stickToDockKey: true,

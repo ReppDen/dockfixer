@@ -132,6 +132,10 @@ private struct MenuContent: View {
         Divider()
 
         Toggle("Launch at Login", isOn: $state.launchAtLogin)
+        Button("Check for Updates…") {
+            // Off the menu's tracking loop first, as with the window below.
+            DispatchQueue.main.async { state.updater.checkForUpdates() }
+        }
 
         Divider()
 
@@ -188,16 +192,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Everything is driven from the window and the menu-bar item instead.
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Closing the window leaves the app running, so it has to stop
-        // pretending to be a window-owning application: no Dock icon and no
-        // entry in the app switcher, since there is nothing to switch to. The
-        // menu-bar item is what brings it back.
-        windowClosed = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification, object: nil, queue: .main
-        ) { [weak self] note in
-            guard let window = note.object as? NSWindow, Self.isAppWindow(window) else { return }
-            // The window is still open at this point; decide once it is gone.
-            DispatchQueue.main.async { self?.retreatToMenuBar() }
+        // Restarted by an automatic update, with the grant intact: nobody
+        // opened the app, so it goes straight back to the menu bar, as it was.
+        // Without the grant the window is the one thing that can say so, and
+        // falls through to being shown below.
+        if Updater.takeRelaunchedAfterUpdate(), WindowScanner.isTrusted {
+            stayInMenuBarAfterUpdate()
+            return
         }
 
         // Showing the window has to be explicit. Activating alone leaves the
@@ -250,6 +251,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         pendingLoginHide = hide
         DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: hide)
+    }
+
+    /// Takes away the window the scene may have put up on its own, without
+    /// waiting to see whether someone wanted it: unlike a login start, nobody
+    /// could have. Not cancelled by activation either, since Sparkle's relaunch
+    /// may activate the app. Twice, because the scene builds its window a turn
+    /// or two late and restoration may bring it back once more.
+    private func stayInMenuBarAfterUpdate() {
+        for delay in [0.3, 1.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if delay == 1.0 {
+                        AppState.current?.log.info("restarted after an update — staying in the menu bar")
+                    }
+                    for window in NSApp.windows where window.isVisible && Self.isMainWindow(window) {
+                        window.close()
+                    }
+                    self.retreatToMenuBar()
+                }
+            }
+        }
     }
 
     /// Someone brought the app to the front, so it was not a silent login start.
@@ -352,6 +375,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func retreatToMenuBar() {
         guard !NSApp.windows.contains(where: { Self.isAppWindow($0) && $0.isVisible }) else { return }
         NSApp.setActivationPolicy(.accessory)
+        // An update held back while the window was open can go in now.
+        MainActor.assumeIsolated { AppState.current?.updater.installWhenIdle() }
     }
 
     /// A window of the app's own — settings or log — as opposed to the panels

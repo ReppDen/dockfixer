@@ -25,6 +25,17 @@ LOG_LEVEL ?= info
 # USAGE_KEY secret, a local build from the environment. Empty means nothing is sent.
 USAGE_KEY ?=
 
+# Where Sparkle looks for updates: appcast.xml attached to the newest GitHub
+# release, which the release workflow writes and signs. "make dev" empties it,
+# so a development build never replaces itself with a release. A local test of
+# the update path points it at a server of its own.
+FEED_URL ?= https://github.com/ReppDen/dockfixer/releases/latest/download/appcast.xml
+
+# The public half of the EdDSA key every update is signed with (Sparkle's
+# SUPublicEDKey). Public by nature; the private half is the SPARKLE_ED_KEY
+# secret of the release workflow. A fork that publishes updates sets its own.
+ED_PUBLIC_KEY ?= 4j2I3P+pHYWICIXVlsoJjEyL6ESMrZOxlZ0/Igrvjv8=
+
 BUILD_DIR := build
 APP       := $(BUILD_DIR)/$(APP_NAME).app
 ZIP       := $(BUILD_DIR)/$(APP_NAME)-$(VERSION).zip
@@ -33,6 +44,8 @@ ICONSET := $(BUILD_DIR)/AppIcon.iconset
 ICNS    := $(BUILD_DIR)/AppIcon.icns
 
 DEV_IDENTITY := DockFixer Dev
+# Empty: a development build does not update itself.
+DEV_FEED_URL ?=
 
 .PHONY: all app icon readme-icon run test install uninstall dev dev-cert reset-tcc zip clean help
 
@@ -44,7 +57,7 @@ dev-cert:
 
 ## dev: build and install signed with the local identity, with debug logging, so the Accessibility grant survives rebuilds
 dev: dev-cert
-	$(MAKE) install SIGN_IDENTITY="$(DEV_IDENTITY)" LOG_LEVEL=debug USAGE_KEY="$(USAGE_KEY)"
+	$(MAKE) install SIGN_IDENTITY="$(DEV_IDENTITY)" LOG_LEVEL=debug USAGE_KEY="$(USAGE_KEY)" FEED_URL="$(DEV_FEED_URL)"
 
 ## icon: draw the app icon and build AppIcon.icns
 icon: $(ICNS)
@@ -77,11 +90,17 @@ app: $(ICNS)
 	rm -rf "$(APP)"
 	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
 	cp "$$(swift build -c release --show-bin-path)/$(APP_NAME)" "$(APP)/Contents/MacOS/$(APP_NAME)"
+	# Sparkle, as built by SwiftPM, keeping its own signature. SwiftPM links it
+	# from next to the binary; in a bundle it lives in Frameworks.
+	mkdir -p "$(APP)/Contents/Frameworks"
+	ditto "$$(swift build -c release --show-bin-path)/Sparkle.framework" "$(APP)/Contents/Frameworks/Sparkle.framework"
+	install_name_tool -add_rpath @executable_path/../Frameworks "$(APP)/Contents/MacOS/$(APP_NAME)"
 	cp "$(ICNS)" "$(APP)/Contents/Resources/AppIcon.icns"
 	# Octicons' GitHub mark (MIT), for the GitHub button.
 	cp Resources/github-mark.pdf "$(APP)/Contents/Resources/github-mark.pdf"
 	sed -e 's/__BUNDLE_ID__/$(BUNDLE_ID)/g' -e 's/__VERSION__/$(VERSION)/g' \
 		-e 's/__LOG_LEVEL__/$(LOG_LEVEL)/g' -e 's/__USAGE_KEY__/$(USAGE_KEY)/g' \
+		-e 's|__FEED_URL__|$(FEED_URL)|g' -e 's|__ED_PUBLIC_KEY__|$(ED_PUBLIC_KEY)|g' \
 		Resources/Info.plist > "$(APP)/Contents/Info.plist"
 	codesign --force --sign "$(SIGN_IDENTITY)" --identifier "$(BUNDLE_ID)" "$(APP)"
 	@echo "built $(APP) (signed with '$(SIGN_IDENTITY)')"

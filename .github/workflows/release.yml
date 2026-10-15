@@ -7,6 +7,19 @@ on:
 permissions:
   contents: write
 
+env:
+  # The certificate every release is signed with. macOS ties the Accessibility
+  # grant to the designated requirement, which for a self-signed certificate is
+  # its SHA-1: sign one release with anything else and every user who updates
+  # to it silently loses the grant. So the build is checked against this
+  # fingerprint, not just signed.
+  RELEASE_CERT_SHA1: 7ee1e6b6e630e61adfdc1fbdb2c904cc99812e81
+  SIGN_IDENTITY: DockFixer Release
+  # Sparkle's command-line tools, for signing the archive. The same version as
+  # the framework in Package.swift.
+  SPARKLE_VERSION: 2.10.0
+  SPARKLE_SHA256: c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c
+
 jobs:
   release:
     runs-on: macos-latest
@@ -16,30 +29,86 @@ jobs:
       - name: Test
         run: make test
 
+      - name: Import the signing certificate
+        # A keychain of its own on the runner, unlocked, holding only the
+        # release identity; it goes away with the runner.
+        env:
+          P12: ${{ secrets.RELEASE_CERT_P12 }}
+          P12_PASSWORD: ${{ secrets.RELEASE_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/release.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/release.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/release.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/release.p12"
+          security find-identity -p codesigning "$KEYCHAIN"
+
       - name: Package
         # The tag drives the version so the bundle and the release agree. The
         # PostHog key is a repository secret rather than a line in the Makefile,
         # so a fork's release sends nothing to this project unless it sets its own.
         env:
           USAGE_KEY: ${{ secrets.USAGE_KEY }}
-        run: make zip VERSION="${GITHUB_REF_NAME#v}" USAGE_KEY="$USAGE_KEY"
+        run: make zip VERSION="${GITHUB_REF_NAME#v}" USAGE_KEY="$USAGE_KEY" SIGN_IDENTITY="$SIGN_IDENTITY"
 
-      - name: Checksum
-        id: sum
+      - name: Check the signature
         run: |
-          FILE=$(ls build/*.zip)
+          codesign --verify --deep --strict build/DockFixer.app
+          REQ="$(codesign -d -r- build/DockFixer.app 2>&1 | grep designated)"
+          echo "$REQ"
+          echo "$REQ" | grep -q "certificate leaf = H\"$RELEASE_CERT_SHA1\"" \
+            || { echo "signed with the wrong certificate"; exit 1; }
+
+      - name: Sign the update and write the feed
+        id: sum
+        env:
+          SPARKLE_ED_KEY: ${{ secrets.SPARKLE_ED_KEY }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          FILE="build/DockFixer-$VERSION.zip"
+          curl -sSfL -o "$RUNNER_TEMP/sparkle.tar.xz" \
+            "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz"
+          echo "$SPARKLE_SHA256  $RUNNER_TEMP/sparkle.tar.xz" | shasum -a 256 -c -
+          mkdir "$RUNNER_TEMP/sparkle"
+          tar -xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
+          printf '%s' "$SPARKLE_ED_KEY" > "$RUNNER_TEMP/ed.key"
+          SIGN_UPDATE="$RUNNER_TEMP/sparkle/bin/sign_update" \
+          SPARKLE_ED_KEY_FILE="$RUNNER_TEMP/ed.key" \
+            Scripts/appcast.sh "$VERSION" "$FILE" \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/DockFixer-$VERSION.zip" \
+            > build/appcast.xml
+          rm "$RUNNER_TEMP/ed.key"
+          cat build/appcast.xml
           echo "file=$FILE" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "sha=$(shasum -a 256 "$FILE" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
+      # The feed goes up with the release, and the app finds it through
+      # GitHub's latest-release redirect: publishing the release is what makes
+      # every installed copy update to it.
       - uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.sum.outputs.file }}
+          files: |
+            ${{ steps.sum.outputs.file }}
+            build/appcast.xml
           body: |
             DockFixer ${{ github.ref_name }}
 
             SHA-256: `${{ steps.sum.outputs.sha }}`
 
-            This build is ad-hoc signed, not notarised. After downloading:
+            Install with Homebrew:
+
+            ```sh
+            brew install reppden/tap/dockfixer
+            ```
+
+            Or by hand. The app is signed with the project's own certificate,
+            not notarised by Apple, so macOS needs to be told to let it run:
 
             ```sh
             unzip DockFixer-*.zip -d /Applications
@@ -49,3 +118,25 @@ jobs:
 
             Then grant Accessibility access in
             System Settings → Privacy & Security → Accessibility.
+            DockFixer updates itself from then on, and the access stays.
+
+      - name: Update the Homebrew cask
+        # A deploy key with write access to the tap and nothing else.
+        env:
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$TAP_DEPLOY_KEY" > ~/.ssh/tap
+          chmod 600 ~/.ssh/tap
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/tap -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git clone git@github.com:ReppDen/homebrew-tap.git "$RUNNER_TEMP/tap"
+          mkdir -p "$RUNNER_TEMP/tap/Casks"
+          Scripts/cask.sh "${{ steps.sum.outputs.version }}" "${{ steps.sum.outputs.sha }}" \
+            > "$RUNNER_TEMP/tap/Casks/dockfixer.rb"
+          cd "$RUNNER_TEMP/tap"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/dockfixer.rb
+          git commit -m "dockfixer ${{ steps.sum.outputs.version }}"
+          git push
+          rm ~/.ssh/tap

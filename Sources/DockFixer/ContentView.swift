@@ -138,6 +138,7 @@ struct ContentView: View {
                            title: "Hide menu bar icon",
                            detail: "Open DockFixer again to show this window or quit.")
                 }
+                row("Updates") { UpdatesRow(updater: state.updater) }
                 row("Statistics") {
                     // Literally what goes out, and nothing it does not say:
                     // see UsageReport.event.
@@ -382,5 +383,33 @@ struct ContentView: View {
         }
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.5)
+    }
+}
+
+/// "Install updates automatically" and the button that checks right now.
+///
+/// A view of its own because the updater is an object of its own: observed
+/// here, its changes redraw this row and nothing else.
+private struct UpdatesRow: View {
+    @ObservedObject var updater: Updater
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                Toggle("Install updates automatically", isOn: $updater.automaticallyUpdates)
+                // Literally what Updater does: a daily check, and an install
+                // held back while a window is open. Off, Sparkle asks.
+                Text("DockFixer checks for a new version once a day and installs it when this window is closed. Off, it asks first.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 20)
+            }
+            Button { updater.checkForUpdates() } label: {
+                Label("Check for Updates…", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .buttonStyle(SoftButtonStyle())
+            .disabled(!updater.canCheckForUpdates)
+        }
     }
 }

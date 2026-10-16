@@ -143,6 +143,9 @@ jobs:
             ${{ steps.sum.outputs.file }}
             build/DockFixer.zip
             build/appcast.xml
+          # Lists the pull requests merged since the previous tag, under the
+          # install instructions.
+          generate_release_notes: true
           body: |
             SHA-256 of both zips: `${{ steps.sum.outputs.sha }}`
 

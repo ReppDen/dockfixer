@@ -74,6 +74,10 @@ bottom or the right; DockFixer reads the usable area of each screen from macOS
 rather than looking for the Dock, so an auto-hidden Dock simply leaves nothing to
 do. Dragging a window under the Dock yourself does not set anything off.
 
+DockFixer is not a window manager. It moves windows only when the Dock is in
+their way or has just moved, so it runs fine next to Rectangle, Magnet or any
+other tiling app.
+
 Some windows cannot be moved through the Accessibility API (fixed-size dialogs,
 some Java and Qt apps), and windows on other Spaces are only seen when you
 switch to them. Full-screen and minimized windows are left alone. Anything

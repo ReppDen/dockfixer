@@ -582,7 +582,7 @@ final class AppState: ObservableObject {
 
     private func refreshDisplays() {
         let current = ScreenMap.current()
-        // Polled twice a second; only publish when something actually moved, so
+        // Polled every two seconds; only publish when something actually moved, so
         // the window is not relaid out for nothing.
         guard current != screens else { return }
         screens = current

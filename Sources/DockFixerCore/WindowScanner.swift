@@ -148,9 +148,6 @@ public final class WindowScanner: Sendable {
     /// which must be read on the main thread, followed by the Accessibility work
     /// on a background queue.
     ///
-    /// - Parameter dryRun: when true, nothing is written — this backs the
-    ///   "Check Windows" button, which must list exactly what "Move Windows"
-    ///   would touch without touching it.
     /// - Parameter previousScreens: the layout before the display change that
     ///   triggered this pass, if there was one. The difference against the
     ///   snapshot taken here is the space the Dock vacated. The comparison is
@@ -167,8 +164,7 @@ public final class WindowScanner: Sendable {
     ///   the summary like every other outcome; the flag keeps a release build
     ///   from building strings nothing will print.
     @MainActor
-    public func run(dryRun: Bool = false,
-                    previousScreens: [ScreenInfo]? = nil,
+    public func run(previousScreens: [ScreenInfo]? = nil,
                     slack: CGFloat = dockNoise,
                     follow: Follow = .all,
                     debugDetail: Bool = false,
@@ -180,7 +176,6 @@ public final class WindowScanner: Sendable {
             let summary = self.scan(apps: apps,
                                     screens: screens,
                                     previousScreens: previousScreens,
-                                    dryRun: dryRun,
                                     slack: slack,
                                     follow: follow,
                                     debugDetail: debugDetail)
@@ -272,7 +267,6 @@ public final class WindowScanner: Sendable {
     private func scan(apps: [AppRef],
                       screens: [ScreenInfo],
                       previousScreens: [ScreenInfo]?,
-                      dryRun: Bool,
                       slack: CGFloat,
                       follow: Follow,
                       debugDetail: Bool = false) -> ScanSummary {
@@ -310,7 +304,7 @@ public final class WindowScanner: Sendable {
             }
         let snap = follow.contains(.sameDisplay) ? dockSnap : 0
         if debugDetail {
-            note("DockFixer", "", "pass — dry run: \(dryRun), previous layout: \(previousScreens == nil ? "none" : "known")")
+            note("DockFixer", "", "pass — previous layout: \(previousScreens == nil ? "none" : "known")")
             for screen in screens {
                 note("DockFixer", "", "now  \(Self.describe(screen))")
             }
@@ -360,15 +354,6 @@ public final class WindowScanner: Sendable {
             plans += own.plans
         }
         summary.candidates += plans.count
-
-        if dryRun {
-            for plan in plans {
-                summary.outcomes.append(WindowOutcome(
-                    app: plan.app.name, title: plan.title, level: .info,
-                    detail: "would fix  \(plan.transition)"))
-            }
-            return summary
-        }
 
         summary.merge(write(plans: plans))
         return summary

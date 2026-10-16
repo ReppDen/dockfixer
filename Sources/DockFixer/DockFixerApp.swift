@@ -206,7 +206,6 @@ private struct UpdateMenuItems: View {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
-    private var windowClosed: NSObjectProtocol?
     private var pendingLoginHide: DispatchWorkItem?
 
     /// Supplied by the menu-bar item: the only way to rebuild the window scene
@@ -225,7 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // macOS attribute Accessibility requests to the *responsible process* — the
     // terminal emulator — rather than to DockFixer. The prompt then asks for the
     // terminal, the request is recorded against it, and DockFixer's own grant stops
-    // matching. Debugging that cost several rounds; see todo_permissions.md.
+    // matching. Debugging that cost several rounds before the cause was found.
     //
     // Everything is driven from the window and the menu-bar item instead.
 

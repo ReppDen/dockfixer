@@ -75,7 +75,7 @@ enum Links {
                    **What you expected**
 
 
-                   **Log lines** (DockFixer → About → Show Log → Copy Log)
+                   **Log lines** (Show Log at the bottom of the DockFixer window → Copy Log)
 
                    ```
                    ```
@@ -144,8 +144,8 @@ struct ContentView: View {
                     // Literally what goes out, and nothing it does not say:
                     // see UsageReport.event.
                     option(isOn: $state.sendUsageStatistics,
-                           title: "Send anonymous usage statistics",
-                           detail: "One line a day: the app version, the date, and how many windows were moved. No window names, no app names.")
+                           title: "Send usage statistics",
+                           detail: "One line a day: a random ID made on this Mac, the app version, the date, and how many windows were moved. No window names, no app names.")
                 }
             }
             Divider()

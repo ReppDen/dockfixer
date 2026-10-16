@@ -49,7 +49,7 @@ struct OnboardingView: View {
 
             // Said before the first window is ever moved, in the same words as
             // the switch that turns it off.
-            Text("DockFixer sends one anonymous line a day: the app version, the date, and how many windows it moved. You can turn this off in the settings.")
+            Text("DockFixer sends one line a day: a random ID made on this Mac, the app version, the date, and how many windows it moved. You can turn this off in the settings.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

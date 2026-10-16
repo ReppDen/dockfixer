@@ -71,7 +71,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// One anonymous line a day — the install ID, the version, the date and
+    /// One line a day — the random install ID, the version, the date and
     /// three counts — so that the project knows it is used and by how much.
     /// Off, the journal and the install ID are deleted: there is nothing
     /// left that could be sent later. See `Usage.swift` for all of it.

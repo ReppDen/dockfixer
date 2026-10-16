@@ -204,3 +204,88 @@ func usageReporterCap(_ t: TestRun) {
     t.expect(log.entries.contains { $0.detail.hasPrefix("usage: 9 unsent days older than") },
              "dropping is logged: \(log.entries.map(\.detail))")
 }
+
+/// The notification event as sent: what happened, to which milestone, and
+/// nothing else; the day event is untouched by it.
+func usageNotificationEvent(_ t: TestRun) {
+    let data = UsageReport.notificationEvent(action: .clicked, hours: 3, installID: "abc", version: "0.1.0",
+                                             apiKey: "phc_test", uuid: "u-1", at: utc("2026-10-16T14:05:09Z"))
+    let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+    let properties = object["properties"] as? [String: Any] ?? [:]
+
+    t.expect(object["event"] as? String == "notification", "event name")
+    t.expect(object["distinct_id"] as? String == "abc", "the same install ID as the day event")
+    t.expect(object["uuid"] as? String == "u-1", "the event ID given")
+    t.expect(object["timestamp"] as? String == "2026-10-16T14:05:09Z", "the moment, in UTC: \(object["timestamp"] ?? "-")")
+    t.expect(properties["action"] as? String == "clicked", "the action")
+    t.expect(properties["hours"] as? Int == 3, "the milestone is a number: \(properties)")
+    t.expect(properties["$geoip_disable"] as? Bool == true, "geo lookup is off")
+    t.expect(Set(properties.keys) == ["action", "hours", "version", "$geoip_disable"],
+             "nothing else is sent: \(properties.keys.sorted())")
+    t.expect(Set(object.keys) == ["api_key", "event", "distinct_id", "uuid", "timestamp", "properties"],
+             "nothing else at the top level: \(object.keys.sorted())")
+
+    let shown = UsageReport.notificationEvent(action: .shown, hours: 1, installID: "abc", version: "0.1.0", apiKey: "k")
+    let shownObject = (try? JSONSerialization.jsonObject(with: shown)) as? [String: Any] ?? [:]
+    t.expect((shownObject["properties"] as? [String: Any])?["action"] as? String == "shown", "shown")
+    t.expect(UUID(uuidString: shownObject["uuid"] as? String ?? "") != nil, "a fresh UUID by default")
+}
+
+/// A notification event goes out at once; one that fails waits for the next
+/// flush, goes before the days, and the queue is capped.
+@MainActor
+func usageNotificationRetry(_ t: TestRun) {
+    let journal = temporaryJournal()
+    defer { journal.erase() }
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("dockfixer-usage-log-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let log = Log(directory: dir, level: .info)
+
+    final class Fake: @unchecked Sendable {
+        var sent: [String] = []
+        var failing = false
+    }
+    let fake = Fake()
+    let reporter = UsageReporter(journal: journal, installID: "abc", version: "0.1.0", apiKey: "k", log: log) { data in
+        if fake.failing { return .failed("offline") }
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        let properties = object["properties"] as? [String: Any] ?? [:]
+        let name = object["event"] as? String ?? "?"
+        fake.sent.append(name == "notification" ? "\(properties["action"] ?? "?") \(properties["hours"] ?? "?")"
+                                                : "day \(properties["day"] ?? "?")")
+        return .accepted
+    }
+    func wait(_ work: @escaping @MainActor () async -> Void) {
+        var done = false
+        Task { @MainActor in
+            await work()
+            done = true
+        }
+        while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+    }
+
+    wait { await reporter.sendNotification(.shown, hours: 1) }
+    t.expect(fake.sent == ["shown 1"], "sent at once: \(fake.sent)")
+    t.expect(reporter.pendingNotificationCount == 0, "nothing waits")
+
+    fake.failing = true
+    wait { await reporter.sendNotification(.clicked, hours: 1) }
+    t.expect(reporter.pendingNotificationCount == 1, "a failed one waits")
+    t.expect(log.entries.contains { $0.detail.hasPrefix("usage: notification clicked (1 h) not sent") }, "and says so")
+
+    journal.record(.pushedOut, at: utc("2026-10-13T10:00:00Z"))
+    fake.failing = false
+    wait { await reporter.flush(now: utc("2026-10-14T09:00:00Z")) }
+    t.expect(fake.sent == ["shown 1", "clicked 1", "day 2026-10-13"], "the waiting one goes first, then the days: \(fake.sent)")
+    t.expect(reporter.pendingNotificationCount == 0, "and is forgotten once sent")
+
+    fake.failing = true
+    for hours in 1...(UsageReporter.maxPendingNotifications + 5) {
+        wait { await reporter.sendNotification(.shown, hours: hours) }
+    }
+    t.expect(reporter.pendingNotificationCount == UsageReporter.maxPendingNotifications,
+             "the queue is capped: \(reporter.pendingNotificationCount)")
+    t.expect(log.entries.contains { $0.detail == "usage: notification shown (1 h) dropped — too many waiting" },
+             "the oldest is dropped, and logged")
+}

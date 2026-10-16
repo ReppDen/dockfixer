@@ -17,7 +17,7 @@ struct DockFixerApp: App {
         Window(Self.mainWindowTitle, id: Self.mainWindowID) {
             ContentView()
                 .environmentObject(state)
-                // The menu-bar item hands this over too, but it may be hidden.
+                // The menu-bar icon hands this over too, but it may be hidden.
                 .background(WindowOpener(delegate: delegate))
         }
         .commands {
@@ -37,8 +37,9 @@ struct DockFixerApp: App {
         // question to the one part of the system that has the final say anyway.
         .windowResizability(.contentSize)
 
-        // The menu-bar item is what makes the app usable once the window is
-        // closed — it has to stay running to catch a display being unplugged.
+        // The menu-bar icon (`StatusItemController`, AppKit, not a scene) is
+        // what makes the app usable once the window is closed — it has to stay
+        // running to catch a display being unplugged.
         Window("DockFixer Log", id: Self.logWindowID) {
             LogView(log: state.log)
                 .environmentObject(state)
@@ -50,157 +51,24 @@ struct DockFixerApp: App {
                 .environmentObject(state)
         }
         .windowResizability(.contentSize)
-
-        MenuBarExtra(isInserted: Binding(get: { !state.hideMenuBarIcon },
-                                         set: { inserted in
-                                             // Only a real change. The scene writes this back on
-                                             // every update, and every write to a @Published
-                                             // property redraws the app, which writes it again:
-                                             // the main thread sat at 100% CPU and no timer ran.
-                                             if state.hideMenuBarIcon == inserted { state.hideMenuBarIcon = !inserted }
-                                         })) {
-            MenuContent(delegate: delegate)
-                .environmentObject(state)
-        } label: {
-            MenuBarIcon(delegate: delegate)
-                .environmentObject(state)
-        }
     }
 }
 
-/// Hands the delegate a way to rebuild the settings window, from inside it.
+/// Hands the delegate a way to rebuild the windows, from inside the settings
+/// window.
 ///
-/// The menu-bar icon does the same, and was the only one doing it until the
-/// icon could be hidden: with it gone, nothing else could give the delegate an
-/// `openWindow`, which exists only in a view's environment.
+/// The menu-bar icon does the same (`StatusItemOpener`), and was the only one
+/// doing it until the icon could be hidden: with it gone, nothing else could
+/// give the delegate an `openWindow`, which exists only in a view's
+/// environment.
 private struct WindowOpener: View {
     let delegate: AppDelegate
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Color.clear.onAppear {
-            delegate.openMainWindow = { openWindow(id: DockFixerApp.mainWindowID) }
+            delegate.openWindow = { id in openWindow(id: id) }
         }
-    }
-}
-
-/// The status-item icon, and the one place that is guaranteed to exist whether
-/// or not the window does.
-///
-/// It exists to hand the delegate a way to open the window. Once a `Window`
-/// scene has been closed only SwiftUI can build its window again, and
-/// `openWindow` is reachable from a view and nowhere else.
-private struct MenuBarIcon: View {
-    let delegate: AppDelegate
-    @EnvironmentObject private var state: AppState
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        // Without the grant nothing works, and the menu bar may be the only
-        // part of the app on screen, so that is where it has to show.
-        Image(systemName: state.isTrusted ? "macwindow" : "exclamationmark.triangle")
-            .onAppear {
-                delegate.openMainWindow = { openWindow(id: DockFixerApp.mainWindowID) }
-            }
-    }
-}
-
-private struct MenuContent: View {
-    /// Handed in, never looked up. `NSApp.delegate as? AppDelegate` returns nil:
-    /// with `@NSApplicationDelegateAdaptor` SwiftUI installs a delegate of its
-    /// own and forwards to this one, so the delegate methods are called but the
-    /// cast never succeeds. The menu item spent every earlier attempt calling
-    /// methods on nil and doing nothing at all.
-    let delegate: AppDelegate
-
-    @EnvironmentObject private var state: AppState
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        Button("Fix Windows Now") { state.moveWindows() }
-            .disabled(state.isBusy)
-
-        if !state.isTrusted {
-            Button("Grant Accessibility Access…") { state.requestAccessibility() }
-        }
-
-        Divider()
-
-        // Worded exactly as in the window: two names for one switch is two
-        // things to learn.
-        Section("Move Windows") {
-            Toggle("Move Windows That Are Under the Dock", isOn: $state.moveFromUnderDock)
-            Toggle("Stick Windows to the Dock When It Changes Size or Moves", isOn: $state.stickToDock)
-                .disabled(!state.moveFromUnderDock)
-            Toggle("Fill the Empty Space When the Dock Moves to Another Display", isOn: $state.fillAcrossDisplays)
-                .disabled(!state.moveFromUnderDock)
-        }
-
-        Divider()
-
-        Toggle("Launch at Login", isOn: $state.launchAtLogin)
-        UpdateMenuItems(updater: state.updater)
-
-        Divider()
-
-        Button("Open DockFixer…") {
-            // Two things matter here, and both were wrong before.
-            //
-            // Not `openWindow` directly: the app is an accessory at this point
-            // and has to become an ordinary one again first, in that order.
-            // `showMainWindow` owns the whole sequence.
-            //
-            // And not synchronously: this runs inside the menu's event-tracking
-            // loop, and changing the activation policy from there is asking for
-            // trouble. Hopping to the main queue defers the work until the menu
-            // has closed and the run loop is back in its normal mode. Belt and
-            // braces — the fault here was the nil delegate above, not this — but
-            // deferring costs nothing.
-            let open = { openWindow(id: DockFixerApp.mainWindowID) }
-            DispatchQueue.main.async {
-                delegate.openMainWindow = open
-                delegate.showMainWindow()
-            }
-        }
-
-        Button("Report a Bug…") {
-            // As with the window above: an accessory app cannot own an
-            // ordinary window, and the menu's tracking loop is no place to
-            // change that, so it waits for the menu to close.
-            let open = { openWindow(id: DockFixerApp.bugReportWindowID) }
-            DispatchQueue.main.async {
-                NSApp.setActivationPolicy(.regular)
-                NSApp.activate(ignoringOtherApps: true)
-                open()
-            }
-        }
-
-        Divider()
-
-        Button("Quit DockFixer") { state.quit() }
-            .keyboardShortcut("q")
-    }
-}
-
-/// "Check for Updates…", and "Restart to Update" while a downloaded update
-/// waits for the window to close. Observes the updater itself: a change
-/// inside it does not redraw a view that only watches `AppState`.
-private struct UpdateMenuItems: View {
-    @ObservedObject var updater: Updater
-
-    var body: some View {
-        if updater.updateIsWaiting {
-            Button("Restart to Update") {
-                // Off the menu's tracking loop first, as with the window below.
-                DispatchQueue.main.async { updater.installNow() }
-            }
-        }
-        Button("Check for Updates…") {
-            DispatchQueue.main.async { updater.checkForUpdates() }
-        }
-        // Disabled rather than silent: a build without a feed never starts
-        // Sparkle, and a check already running cannot start another.
-        .disabled(!updater.canCheckForUpdates)
     }
 }
 
@@ -208,9 +76,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var pendingLoginHide: DispatchWorkItem?
 
-    /// Supplied by the menu-bar item: the only way to rebuild the window scene
-    /// after it has been closed. See `MenuBarIcon`.
-    var openMainWindow: (() -> Void)?
+    /// SwiftUI's `openWindow`, taking a scene's ID: the only way to rebuild a
+    /// window scene after it has been closed. Supplied by the menu-bar icon
+    /// and by the settings window, whichever appears first. See
+    /// `StatusItemOpener`.
+    var openWindow: ((String) -> Void)?
 
     /// Closing the window must not quit the app: the display-change watcher has
     /// to keep running with the window shut. Quitting is explicit.
@@ -228,6 +98,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     //
     // Everything is driven from the window and the menu-bar item instead.
 
+    /// The notification centre's delegate has to be in place before launch
+    /// finishes: a click on a milestone notification while the app is not
+    /// running launches it and delivers the click right after.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        StatusItemController.shared.delegate = self
+        MilestoneNotifier.shared.install()
+        MilestoneNotifier.shared.openStatistics = { [weak self] in
+            AppState.current?.showStatistics()
+            self?.showMainWindow()
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // The log and Report a Bug windows close for real, unlike the main
         // window, whose close button only hides it. When one of them was the
@@ -237,6 +119,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] _ in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.retreatToMenuBar() }
+            }
+        }
+
+        // The dot on the menu-bar icon says "a notification came while you
+        // were away"; once the window is in front of the user, it has been
+        // answered. One rule for every way in — the icon, its menu, the
+        // notification, opening the app again — rather than a line in each.
+        // Only while the app is active: at a login start the window is shown
+        // for a second to nobody, and that must not take the dot away.
+        NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { note in
+            MainActor.assumeIsolated {
+                guard NSApp.isActive, let window = note.object as? NSWindow, Self.isMainWindow(window) else { return }
+                StatusItemController.shared.setBadge(false)
             }
         }
 
@@ -365,7 +260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // when the window is already open. Ordering the NSWindow in afterwards
         // covers the case where the scene thinks it is open and the window is
         // merely behind something.
-        openMainWindow?()
+        openWindow?(DockFixerApp.mainWindowID)
 
         if let window = NSApp.windows.first(where: { Self.isMainWindow($0) }) {
             adopt(window)

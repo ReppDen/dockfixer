@@ -60,9 +60,15 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Whether the menu-bar item is left out. Off by default: with the window
+    /// Whether the menu-bar icon is left out. Off by default: with the window
     /// closed it is the only visible part of the app. Opening the app again
     /// brings the window back, which is the way in once it is hidden.
+    ///
+    /// `StatusItemController` follows this one way and never writes it back.
+    /// The `MenuBarExtra` it replaced took a binding to it that wrote back on
+    /// every update; each write to a published property redraws the app,
+    /// which wrote it again, and the main thread sat at 100% CPU with no timer
+    /// running. Any binding here must write only a real change.
     @Published var hideMenuBarIcon: Bool {
         didSet {
             guard oldValue != hideMenuBarIcon else { return }
@@ -72,7 +78,8 @@ final class AppState: ObservableObject {
     }
 
     /// One line a day — the random install ID, the version, the date and
-    /// three counts — so that the project knows it is used and by how much.
+    /// three counts — and one event when a milestone notification is shown
+    /// or clicked, so that the project knows it is used and by how much.
     /// Off, the journal and the install ID are deleted: there is nothing
     /// left that could be sent later. See `Usage.swift` for all of it. The
     /// local history (`UsageHistory`) is not touched: it never leaves the
@@ -86,6 +93,44 @@ final class AppState: ObservableObject {
                 startUsage()
             } else {
                 stopUsage(erasing: true)
+            }
+        }
+    }
+
+    /// Light or dark, or whatever the system is set to; chosen on the Debug
+    /// tab, so only a development build offers it. Set on the application
+    /// rather than on each window: a window with an appearance of its own
+    /// stops following the application's, and setting one on the main window
+    /// left its title bar and background in one look while the SwiftUI
+    /// content redrew in the other. With the application's alone, every
+    /// window — main, log, bug report, menus — switches whole, and `nil`
+    /// hands them back to the system setting, changes to it included.
+    @Published var appearance: Appearance {
+        didSet {
+            guard oldValue != appearance else { return }
+            UserDefaults.standard.set(appearance.rawValue, forKey: Self.appearanceKey)
+            appearance.apply()
+            log.info("appearance: \(appearance.rawValue)")
+        }
+    }
+
+    enum Appearance: String, CaseIterable, Identifiable {
+        case system, light, dark
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .system: return "System"
+            case .light: return "Light"
+            case .dark: return "Dark"
+            }
+        }
+
+        @MainActor func apply() {
+            switch self {
+            case .system: NSApplication.shared.appearance = nil
+            case .light: NSApplication.shared.appearance = NSAppearance(named: .aqua)
+            case .dark: NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
             }
         }
     }
@@ -105,8 +150,37 @@ final class AppState: ObservableObject {
     @Published private(set) var isBusy = false
     /// The current displays, for the window to describe one per row.
     @Published private(set) var screens: [ScreenInfo] = []
-    /// What the last pass did, in words, for the foot of the window.
-    @Published private(set) var lastActivity: Activity?
+    /// What the last press of Fix Windows Now did, in words, for the foot of
+    /// the window. Only the button's own passes: a line there that changed
+    /// after a pass nobody asked for, or that was already filled when the
+    /// window opened, read as the answer to a press that never happened.
+    /// Kept until the next press, so the answer does not vanish while read.
+    @Published private(set) var fixNowResult: Activity?
+    /// The tab the main window shows. Here rather than in the view, so that
+    /// something outside the window — a notification about the statistics —
+    /// can open it on the right tab, and so a hidden window comes back where
+    /// it was left.
+    @Published var page: Page = .stats
+    /// Every day of the local history, oldest first, for the Stats tab.
+    /// Refreshed after each pass that moved something; the history itself is
+    /// not observable, and reading it from a view on every redraw would take
+    /// its lock on every frame.
+    @Published private(set) var usageDays: [UsageDay] = []
+
+    /// Switches the main window to the Stats tab: what a click on a
+    /// milestone notification leads to. Only a real change is written: every
+    /// write to a published property redraws the window, even an equal one.
+    /// Showing the window itself is the app delegate's job.
+    func showStatistics() {
+        if page != .stats { page = .stats }
+    }
+
+    enum Page: String, CaseIterable, Identifiable {
+        /// `debug` exists in every build but is reachable only in a
+        /// development one: the tab that leads to it is drawn only there.
+        case stats, rules, settings, debug
+        var id: String { rawValue }
+    }
 
     struct Activity: Equatable {
         let text: String
@@ -133,6 +207,7 @@ final class AppState: ObservableObject {
     private static let fillAcrossDisplaysKey = "fillAcrossDisplays"
     private static let hideMenuBarIconKey = "hideMenuBarIcon"
     private static let sendUsageStatisticsKey = "sendUsageStatistics"
+    private static let appearanceKey = "appearance"
     private static let usageInstallIDKey = "usageInstallID"
     /// How long to wait before repeating a pass that could not read the windows.
     private static let retryDelays: [TimeInterval] = [0.75, 1.5, 3]
@@ -191,6 +266,13 @@ final class AppState: ObservableObject {
         fillAcrossDisplays = UserDefaults.standard.bool(forKey: Self.fillAcrossDisplaysKey)
         hideMenuBarIcon = UserDefaults.standard.bool(forKey: Self.hideMenuBarIconKey)
         sendUsageStatistics = UserDefaults.standard.bool(forKey: Self.sendUsageStatisticsKey)
+        let appearance = UserDefaults.standard.string(forKey: Self.appearanceKey)
+            .flatMap(Appearance.init(rawValue:)) ?? .system
+        self.appearance = appearance
+        // Here, not in the app delegate: this object is made when the first
+        // scene is, so its window is drawn in the right colours from the
+        // start rather than switching a moment after it appears.
+        appearance.apply()
         launchAtLogin = LoginItem.isEnabled
         isTrusted = WindowScanner.isTrusted
 
@@ -217,6 +299,7 @@ final class AppState: ObservableObject {
         }
 
         Self.current = self
+        StatusItemController.shared.attach(state: self)
 
         refreshDisplays()
         log.info("DockFixer ready — \(displaysSummary)")
@@ -231,6 +314,9 @@ final class AppState: ObservableObject {
         case .unreadable(let aside): log.info("usage history: could not be read, moved to \(aside.lastPathComponent)")
         case .newer(let version): log.info("usage history: written by a newer DockFixer (version \(version)), left as it is")
         }
+        usageDays = usageHistory.allDays
+        // After the history is open: the notifier starts from its totals.
+        MilestoneNotifier.shared.attach(history: usageHistory, log: log)
         // The counts of the last couple of seconds are still in memory when
         // the app quits; this is the moment to write them.
         historyObserver = NotificationCenter.default.addObserver(
@@ -240,6 +326,14 @@ final class AppState: ObservableObject {
         }
         if sendUsageStatistics {
             startUsage()
+        }
+        // After the reporter is made: a click that launched the app may be
+        // waiting to be sent. `usage` exists only while the statistics switch
+        // is on and the build has a key, so off means nothing goes out. The
+        // local history never hears of it: a notification is not a window.
+        MilestoneNotifier.shared.reportUsage = { [weak self] action, hours in
+            guard let usage = self?.usage else { return }
+            Task { await usage.sendNotification(action, hours: hours) }
         }
 
         if !isTrusted {
@@ -330,7 +424,6 @@ final class AppState: ObservableObject {
             record(summary)
             if summary.candidates > 0 {
                 log.info("new window — \(summary.headline)")
-                describe(summary, answering: false)
             }
         }
     }
@@ -377,7 +470,7 @@ final class AppState: ObservableObject {
             let took = Date().timeIntervalSince(started)
             log.info("pass (\(trigger)\(attempt > 0 ? ", try \(attempt + 1)" : "")) — \(summary.headline)"
                 + (took >= 1 ? " — took \(String(format: "%.1f", took))s" : ""))
-            describe(summary, answering: answerNextPass)
+            if answerNextPass { answer(summary) }
             answerNextPass = false
             isBusy = false
 
@@ -429,10 +522,10 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// The pass in the words someone looking at the window would use: how
-    /// many, not which — an application's name is not something to wait for
-    /// or to fit into a line. The details stay in the log.
-    private func describe(_ summary: ScanSummary, answering: Bool) {
+    /// The pass that answers the button, in the words someone looking at the
+    /// window would use: how many, not which — an application's name is not
+    /// something to wait for or to fit into a line. The details stay in the log.
+    private func answer(_ summary: ScanSummary) {
         let moved = summary.outcomes.filter { $0.level == .moved }
         let text: String
         if summary.failed > 0 {
@@ -443,19 +536,25 @@ final class AppState: ObservableObject {
             text = "Fixed 1 window"
         } else if moved.count > 1 {
             text = "Fixed \(moved.count) windows"
-        } else if answering {
-            text = "Nothing to fix"
         } else {
-            return
+            text = "Nothing to fix"
         }
-        lastActivity = Activity(text: text, date: Date(), needsAttention: summary.failed > 0)
+        fixNowResult = Activity(text: text, date: Date(), needsAttention: summary.failed > 0)
     }
 
     private func record(_ summary: ScanSummary) {
+        // Once per pass, not per window: a pass after a display change moves
+        // twenty windows, and twenty redraws of the Stats tab say nothing more.
+        defer {
+            if summary.outcomes.contains(where: { $0.kind != nil }) {
+                usageDays = usageHistory.allDays
+            }
+        }
         for outcome in summary.outcomes {
             if let kind = outcome.kind {
                 usageJournal?.record(kind)
                 usageHistory.record(kind)
+                MilestoneNotifier.shared.windowMoved(kind)
             }
             if outcome.logOncePerSession {
                 let key = "\(outcome.app)|\(outcome.detail)"

@@ -50,12 +50,12 @@ final class Updater: NSObject, ObservableObject {
     }
 
     /// False while a check is already running, and in a build without a
-    /// feed, where Sparkle is never started: the button and the menu item are
-    /// disabled rather than doing nothing.
+    /// feed, where Sparkle is never started: the button is disabled rather
+    /// than doing nothing.
     @Published private(set) var canCheckForUpdates = false
 
     /// An update is downloaded and waits for the window to be closed. The
-    /// window and the menu offer to install it right away instead.
+    /// window offers to install it right away instead.
     @Published private(set) var updateIsWaiting = false
 
     /// The version an automatic install is about to restart into, written
@@ -112,7 +112,7 @@ final class Updater: NSObject, ObservableObject {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     let canCheck = updater.canCheckForUpdates
-                    // Only a real change: see the note on MenuBarExtra in DockFixerApp.
+                    // Only a real change: see the note on `hideMenuBarIcon` in AppState.
                     if self?.canCheckForUpdates != canCheck { self?.canCheckForUpdates = canCheck }
                 }
             }
@@ -121,7 +121,7 @@ final class Updater: NSObject, ObservableObject {
             + ", install automatically: \(automaticallyUpdates ? "on" : "off")")
     }
 
-    /// The button and the menu item: a check someone asked for, with Sparkle's
+    /// The button: a check someone asked for, with Sparkle's
     /// window to answer it either way.
     func checkForUpdates() {
         log.info("updates: check requested")

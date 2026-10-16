@@ -121,8 +121,27 @@ Turn off **Send usage statistics** in the settings and nothing is sent.
 ```
 
 The three numbers are how many windows each of the three switches moved that
-day. The PostHog project is set to discard IP addresses, and `$geoip_disable`
-stops it from looking one up. Counts are kept in
+day. One more event goes out when a "DockFixer saved you N hours" notification
+is shown, and again if you click it:
+
+```json
+{
+  "event": "notification",
+  "distinct_id": "the same random ID",
+  "uuid": "a random ID for this event",
+  "timestamp": "2026-10-16T14:05:09Z",
+  "properties": {
+    "action": "shown",
+    "hours": 3,
+    "version": "0.1.0",
+    "$geoip_disable": true
+  }
+}
+```
+
+`action` is `shown` or `clicked`, and `hours` is the number in the
+notification. The PostHog project is set to discard IP addresses, and
+`$geoip_disable` stops it from looking one up. Counts are kept in
 `~/Library/Application Support/DockFixer/usage.jsonl` until the UTC day is over,
 and each send is a line in the log. A build without the project key, such as a
 fork or a local build, sends nothing. The code is one file:

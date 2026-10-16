@@ -49,8 +49,49 @@ struct SoftButtonStyle: ButtonStyle {
     }
 }
 
-/// Where the links at the foot of the window go. Buy Me a Coffee has no page yet, and a
-/// button that goes nowhere is worse than none.
+/// The one warm thing in a grey window: the button that asks for support.
+///
+/// Same size and corners as `SoftButtonStyle`, so it sits in the row as an
+/// equal, but filled with Buy Me a Coffee's own yellow. Everything else in
+/// the window is grey, blue or white, and a request that looks like every
+/// other button is a request nobody notices. The yellow is the same in light
+/// and dark: it is a brand colour, and dark text stays readable on it in both.
+struct DonateButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Filled(configuration: configuration)
+    }
+
+    private struct Filled: View {
+        let configuration: Configuration
+        @State private var hovering = false
+
+        /// Buy Me a Coffee's #FFDD00.
+        private static let yellow = Color(red: 1, green: 0xDD / 255, blue: 0)
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: 12, weight: .medium))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Self.yellow)
+                        // Darkened rather than lightened on press and hover:
+                        // a lighter yellow on a light window would fade out.
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color.black.opacity(configuration.isPressed ? 0.15 : hovering ? 0.06 : 0))
+                        )
+                )
+                .foregroundStyle(Color.black.opacity(0.85))
+                .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .fixedSize()
+                .onHover { hovering = $0 }
+        }
+    }
+}
+
+/// Where the links in the window go.
 enum Links {
     static let repository = URL(string: "https://github.com/ReppDen/dockfixer")!
     static let discussions = URL(string: "https://github.com/ReppDen/dockfixer/discussions")!
@@ -75,7 +116,7 @@ enum Links {
                    **What you expected**
 
 
-                   **Log lines** (Show Log at the bottom of the DockFixer window → Copy Log)
+                   **Log lines** (DockFixer window → Settings → Show Log → Copy Log)
 
                    ```
                    ```
@@ -90,29 +131,53 @@ enum Links {
     }
 }
 
-/// Everything on one page: who the app is, what it sees, what it does, and the
-/// way out to the log and the project.
+/// The main window: a line saying which app this is, a row of tabs, as in
+/// a Mac app's settings window, the page of the chosen tab, and a foot that
+/// is the same on every tab.
+///
+/// The tabs are drawn here rather than left to SwiftUI. A `TabView` gives the
+/// toolbar of icons over titles only inside a `Settings` scene; in a `Window`
+/// scene it draws a segmented control instead, and this window has to stay a
+/// `Window` — the app delegate hides, rebuilds and finds it by title, none of
+/// which a `Settings` scene allows. Putting a real toolbar into the title bar
+/// from AppKit would fight SwiftUI, which owns that toolbar and rebuilds it.
+///
+/// The window is sized by the page it shows, as settings windows on the Mac
+/// always were: a short page does not sit in a tall window of empty space,
+/// and the width never changes, so the tabs and the foot stay where they are.
 struct ContentView: View {
     @EnvironmentObject private var state: AppState
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openURL) private var openURL
 
-    private static let width: CGFloat = 600
+    static let width: CGFloat = 600
     /// Section names sit flush right in a column of their own, as in macOS
     /// settings. Fixed widths, not a `Form`, so the window sized by its
     /// contents has nothing to negotiate.
-    private static let labelWidth: CGFloat = 100
-    private static let controlWidth: CGFloat = 448
+    static let labelWidth: CGFloat = 100
+    static let controlWidth: CGFloat = 448
 
     var body: some View {
         Group {
             if state.isTrusted {
-                page
+                VStack(spacing: 0) {
+                    header
+                        .padding(.horizontal, 20)
+                        .padding(.top, 10)
+                    tabBar
+                    Divider()
+                    page
+                        .padding(20)
+                    Divider()
+                    footer
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                }
             } else {
                 OnboardingView()
+                    .padding(20)
             }
         }
-        .padding(20)
         .frame(width: Self.width)
         .animation(.easeInOut(duration: 0.2), value: state.isTrusted)
         .onChange(of: state.isTrusted) { _, trusted in
@@ -122,58 +187,60 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Tabs
+
+    private struct Tab: Identifiable {
+        let page: AppState.Page
+        let title: String
+        let icon: String
+        var id: AppState.Page { page }
+    }
+
+    private static let tabs: [Tab] = [
+        Tab(page: .stats, title: "Stats", icon: "chart.bar"),
+        Tab(page: .rules, title: "Rules", icon: "dock.rectangle"),
+        Tab(page: .settings, title: "Settings", icon: "gearshape"),
+    ] + (DebugView.isAvailable
+         // DEV ONLY: a development build has a Debug tab; a release never does.
+         ? [Tab(page: .debug, title: "Debug", icon: "ant")]
+         : [])
+
+    private var tabBar: some View {
+        HStack(spacing: 2) {
+            ForEach(Self.tabs) { tab in
+                TabButton(title: tab.title, icon: tab.icon, selected: state.page == tab.page) {
+                    // Only a real change: every write to a @Published
+                    // property redraws the whole window.
+                    if state.page != tab.page { state.page = tab.page }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
+    }
+
+    @ViewBuilder
     private var page: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            header
-            Divider()
-            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 16) {
-                row("Screens") { screens }
-                row("Move windows") { dock }
-                row("External display") { externalDisplay }
-                row("") { fixNow }
-                row("Startup") {
-                    Toggle("Launch at login", isOn: $state.launchAtLogin)
-                }
-                row("Menu bar") {
-                    option(isOn: $state.hideMenuBarIcon,
-                           title: "Hide menu bar icon",
-                           detail: "Open DockFixer again to show this window or quit.")
-                }
-                row("Updates") { UpdatesRow(updater: state.updater) }
-                row("Statistics") {
-                    // What exactly goes out is in the README, linked from
-                    // there to UsageReport.event; the switch only has to say
-                    // what it is.
-                    option(isOn: $state.sendUsageStatistics,
-                           title: "Send usage statistics")
-                }
-            }
-            Divider()
-            footer
+        switch state.page {
+        case .stats: StatsView()
+        case .rules: rules
+        case .settings: settings
+        // A release has no tab that leads here; should something set the
+        // page anyway, it shows the settings instead.
+        case .debug: if DebugView.isAvailable { DebugView() } else { settings }
         }
     }
 
-    // MARK: - Header
+    // MARK: - Rules
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            AppIconView(size: 48)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("DockFixer")
-                        .font(.system(size: 17, weight: .semibold))
-                    Text(Self.version)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Text("Keeps your windows away from the Dock.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
+    private var rules: some View {
+        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 16) {
+            Self.row("Screens") { screens }
+            Self.row("Move windows") { dock }
+            Self.row("External display") { externalDisplay }
         }
     }
-
-    // MARK: - Screens
 
     /// One row per display: its name, its size, and where its Dock is.
     private var screens: some View {
@@ -222,117 +289,133 @@ struct ContentView: View {
         return "Dock on the \(dock.0)"
     }
 
-    // MARK: - Dock
-
     private var dock: some View {
         VStack(alignment: .leading, spacing: 10) {
             // Each title finishes the sentence the row's name starts: "Move
             // windows" · "that are under the Dock". Cut by what happens to a
             // window, not by what set it off; the wording is kept to the
             // simplest English that is still literally true.
-            option(isOn: $state.moveFromUnderDock,
-                   title: "Move windows that are under the Dock")
+            Self.option(isOn: $state.moveFromUnderDock,
+                        title: "Move windows that are under the Dock")
             // "Stick" promises the window ends up against the Dock, which is
             // true for one that was next to it or within a few points of it.
             // A window in the middle of the screen is not read as "windows".
-            option(isOn: $state.stickToDock,
-                   title: "Stick windows to the Dock when it changes size or moves",
-                   enabled: state.moveFromUnderDock)
+            Self.option(isOn: $state.stickToDock,
+                        title: "Stick windows to the Dock when it changes size or moves",
+                        enabled: state.moveFromUnderDock)
             // Pixels, not points: points mean nothing to most people, and on
             // a Retina display the number is twice the points.
-            option(isOn: $state.ignoreSmallDockChanges,
-                   title: "Skip very small changes (about \(Int(dockNoise) * 2) pixels)",
-                   enabled: state.moveFromUnderDock && state.stickToDock)
+            Self.option(isOn: $state.ignoreSmallDockChanges,
+                        title: "Skip very small changes (about \(Int(dockNoise) * 2) pixels)",
+                        enabled: state.moveFromUnderDock && state.stickToDock)
                 .padding(.leading, 20)
         }
     }
 
     private var externalDisplay: some View {
-        option(isOn: $state.fillAcrossDisplays,
-               title: "When the Dock moves to another display, fill the empty space with windows",
-               enabled: state.moveFromUnderDock)
+        Self.option(isOn: $state.fillAcrossDisplays,
+                    title: "When the Dock moves to another display, fill the empty space with windows",
+                    enabled: state.moveFromUnderDock)
     }
 
-    private var fixNow: some View {
-        // The result goes under the button rather than beside it, where a
-        // longer sentence had no room.
-        VStack(alignment: .leading, spacing: 6) {
-            Button { state.moveWindows() } label: {
-                Label(state.isBusy ? "Fixing…" : "Fix Windows Now", systemImage: "wrench.and.screwdriver")
+    // MARK: - Settings
+
+    private var settings: some View {
+        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 16) {
+            Self.row("Startup") {
+                Toggle("Launch at login", isOn: $state.launchAtLogin)
             }
-                .buttonStyle(SoftButtonStyle(emphasised: true))
-                .keyboardShortcut(.defaultAction)
-                .disabled(state.isBusy)
-            activity
+            Self.row("Menu bar") {
+                Self.option(isOn: $state.hideMenuBarIcon,
+                            title: "Hide menu bar icon",
+                            detail: "Open DockFixer again to show this window or quit.")
+            }
+            Self.row("Updates") { UpdatesRow(updater: state.updater) }
+            Self.row("Statistics") {
+                // What exactly goes out is in the README, linked from
+                // there to UsageReport.event; the switch only has to say
+                // what it is. The Stats tab does not depend on it: that
+                // history never leaves the Mac.
+                Self.option(isOn: $state.sendUsageStatistics,
+                            title: "Send usage statistics")
+            }
+            Self.row("Help") { help }
         }
     }
 
-    /// What the last pass did, and when. Nothing until something happened: an
-    /// empty line is not worth a sentence.
-    @ViewBuilder
-    private var activity: some View {
-        if let activity = state.lastActivity {
-            // Counted from the event, not from the clock's minute: `.everyMinute`
-            // ticks on the minute, so "just now" lasted anywhere up to two.
-            TimelineView(.periodic(from: activity.date, by: 60)) { context in
-                HStack(spacing: 6) {
-                    Text("\(activity.text) · \(Self.when(activity.date, now: context.date))")
-                        .foregroundStyle(activity.needsAttention ? Color.orange : Color.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if activity.needsAttention {
-                        Button("Show Log") { openWindow(id: DockFixerApp.logWindowID) }
-                            .buttonStyle(.link)
-                    }
-                }
-                .font(.caption)
+    // MARK: - Header
+
+    /// Who the app is, on one quiet line over the tabs, where an About box
+    /// would be in another app: the version is what a bug report needs
+    /// first, and it is the same on every tab.
+    ///
+    /// Small and on a line of its own, left-aligned while the tabs are
+    /// centred: an icon as large as a tab's, or in the same row, would read
+    /// as one more tab.
+    private var header: some View {
+        HStack(alignment: .center, spacing: 7) {
+            AppIconView(size: 20)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("DockFixer")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(Self.version)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                Text("Keeps your windows away from the Dock")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 6)
             }
+            Spacer(minLength: 0)
         }
     }
 
-    /// `just now` for the first minute, then minutes: redrawn once a minute
-    /// from the event, anything finer would sit wrong for most of it.
-    private static func when(_ date: Date, now: Date) -> String {
-        now.timeIntervalSince(date) < 60
-            ? "just now"
-            : date.formatted(.relative(presentation: .named))
-    }
-
-    // MARK: - Footer
-
-    /// The way out: to the project, and to the log for when something looked
-    /// wrong. Quitting is here too, since the menu-bar icon may be hidden.
-    private var footer: some View {
+    /// The ways to get help: a form of the app's own, the project's
+    /// discussions, and the log for when something looked wrong.
+    private var help: some View {
         HStack(spacing: 6) {
-            Button { openURL(Links.repository) } label: {
-                Label { Text("GitHub") } icon: { Self.githubMark }
-            }
-            .buttonStyle(SoftButtonStyle())
             // A form of the app's own, not GitHub: see BugReportView.
             Button { openWindow(id: DockFixerApp.bugReportWindowID) } label: {
                 Label("Report a Bug", systemImage: "ladybug")
             }
             .buttonStyle(SoftButtonStyle())
-            link("Ask a Question", "questionmark.circle", Links.discussions)
-            if let coffee = Links.buyMeACoffee {
-                link("Buy Me a Coffee", "cup.and.saucer", coffee)
+            Button { openURL(Links.discussions) } label: {
+                Label("Ask a Question", systemImage: "questionmark.circle")
             }
+            .buttonStyle(SoftButtonStyle())
             Button { openWindow(id: DockFixerApp.logWindowID) } label: {
                 Label("Show Log", systemImage: "doc.text")
             }
             .buttonStyle(SoftButtonStyle())
-            Spacer()
-            Button { state.quit() } label: {
-                Label("Quit", systemImage: "xmark.circle")
+            // The project itself: the code, the releases, the issues.
+            Button { openURL(Links.repository) } label: {
+                Label { Text("GitHub") } icon: { Self.githubMark }
             }
             .buttonStyle(SoftButtonStyle())
         }
     }
 
-    private func link(_ title: String, _ icon: String, _ url: URL) -> some View {
-        Button { openURL(url) } label: {
-            Label(title, systemImage: icon)
+    // MARK: - Footer
+
+    /// The same on every tab. Support first, where it is seen; the one
+    /// thing the app does, on demand, with what it last did beside it; and
+    /// Quit, which has to be reachable from any tab since the menu-bar icon
+    /// may be hidden.
+    private var footer: some View {
+        HStack(spacing: 6) {
+            // Hidden in a release until there is a page to send people to;
+            // a development build shows it so the row can be judged.
+            if Links.buyMeACoffee != nil || DebugView.isAvailable {
+                DonateButton()
+                    .padding(.trailing, 6)
+            }
+            FixNowControl()
+            Spacer(minLength: 12)
+            Button { state.quit() } label: {
+                Label("Quit", systemImage: "xmark.circle")
+            }
+            .buttonStyle(SoftButtonStyle())
         }
-        .buttonStyle(SoftButtonStyle())
     }
 
     /// SF Symbols has no brand marks, so GitHub's own comes from Octicons (MIT),
@@ -352,24 +435,25 @@ struct ContentView: View {
 
     // MARK: - Pieces
 
-    /// One line of the page: its name flush right, then the controls.
-    private func row<Content: View>(_ label: String,
-                                    @ViewBuilder content: () -> Content) -> some View {
+    /// One line of a page: its name flush right, then the controls. Static,
+    /// so the Stats tab can lay its numbers out in the same two columns.
+    static func row<Content: View>(_ label: String,
+                                   @ViewBuilder content: () -> Content) -> some View {
         GridRow {
             Text(label)
                 .foregroundStyle(.secondary)
-                .frame(width: Self.labelWidth, alignment: .trailing)
+                .frame(width: labelWidth, alignment: .trailing)
             content()
-                .frame(width: Self.controlWidth, alignment: .leading)
+                .frame(width: controlWidth, alignment: .leading)
         }
     }
 
     /// A checkbox, with a line under it when the title alone does not say what
     /// it does.
-    private func option(isOn: Binding<Bool>,
-                        title: String,
-                        detail: String? = nil,
-                        enabled: Bool = true) -> some View {
+    private static func option(isOn: Binding<Bool>,
+                               title: String,
+                               detail: String? = nil,
+                               enabled: Bool = true) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             // A title longer than the column wraps rather than being cut
             // with an ellipsis: a sentence is the point of these.
@@ -388,6 +472,118 @@ struct ContentView: View {
         }
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.5)
+    }
+}
+
+/// One tab at the top of the window: an icon over its title, the chosen one
+/// on a soft rounded fill with its icon in the accent colour — the way the
+/// toolbar of a Mac settings window marks the page it shows.
+private struct TabButton: View {
+    let title: String
+    let icon: String
+    let selected: Bool
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .regular))
+                    .frame(height: 22)
+                    .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                Text(title)
+                    .font(.system(size: 11))
+                    .foregroundStyle(selected ? Color.primary : Color.secondary)
+            }
+            .frame(minWidth: 56)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.primary.opacity(selected ? 0.08 : hovering ? 0.04 : 0))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// "Buy Me a Coffee", in the warm style. On the Stats tab as well as at the
+/// foot of the window, so it is one view.
+struct DonateButton: View {
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        Button {
+            if let url = Links.buyMeACoffee {
+                openURL(url)
+            } else {
+                // Only a development build shows the button without a page.
+                AppState.current?.log.info("Buy Me a Coffee: no page yet")
+            }
+        } label: {
+            Label("Buy Me a Coffee", systemImage: "cup.and.saucer.fill")
+        }
+        .buttonStyle(DonateButtonStyle())
+    }
+}
+
+/// "Fix Windows Now" and, beside it, what its last press did. In the foot of
+/// the window, so it is there on every tab.
+struct FixNowControl: View {
+    @EnvironmentObject private var state: AppState
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        // The result goes beside the button, on the same line, cut short if
+        // it is long: under the button it made the window taller the moment
+        // it appeared, and every tab with it.
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Button { state.moveWindows() } label: {
+                Label(state.isBusy ? "Fixing…" : "Fix Windows Now", systemImage: "wrench.and.screwdriver")
+            }
+                .buttonStyle(SoftButtonStyle(emphasised: true))
+                .keyboardShortcut(.defaultAction)
+                .disabled(state.isBusy)
+            activity
+        }
+    }
+
+    /// What the last press of the button did, and when. Nothing before the
+    /// first press: automatic passes answer no one here.
+    @ViewBuilder
+    private var activity: some View {
+        if let activity = state.fixNowResult {
+            // Counted from the event, not from the clock's minute: `.everyMinute`
+            // ticks on the minute, so "just now" lasted anywhere up to two.
+            TimelineView(.periodic(from: activity.date, by: 60)) { context in
+                let text = "\(activity.text) · \(Self.when(activity.date, now: context.date))"
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(text)
+                        .foregroundStyle(activity.needsAttention ? Color.orange : Color.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        // The whole sentence, for when the line is cut.
+                        .help(text)
+                    if activity.needsAttention {
+                        Button("Show Log") { openWindow(id: DockFixerApp.logWindowID) }
+                            .buttonStyle(.link)
+                    }
+                }
+                .font(.caption)
+            }
+        }
+    }
+
+    /// `just now` for the first minute, then minutes: redrawn once a minute
+    /// from the event, anything finer would sit wrong for most of it.
+    private static func when(_ date: Date, now: Date) -> String {
+        now.timeIntervalSince(date) < 60
+            ? "just now"
+            : date.formatted(.relative(presentation: .named))
     }
 }
 
@@ -419,3 +615,4 @@ private struct UpdatesRow: View {
         }
     }
 }
+

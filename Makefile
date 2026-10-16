@@ -30,11 +30,16 @@ LOG_LEVEL ?= info
 # USAGE_KEY secret, a local build from the environment. Empty means nothing is sent.
 USAGE_KEY ?=
 
-# Where Sparkle looks for updates: appcast.xml attached to the newest GitHub
-# release, which the release workflow writes and signs. "make dev" empties it,
-# so a development build never replaces itself with a release. A local test of
-# the update path points it at a server of its own.
-FEED_URL ?= https://github.com/ReppDen/dockfixer/releases/latest/download/appcast.xml
+# Where Sparkle looks for updates. Empty by default, and an empty feed means
+# the build never checks: a contributor's build is signed with some other
+# certificate than a release, and updating itself to a release would swap
+# its signature and lose the Accessibility grant. The release workflow passes
+# the real one, appcast.xml attached to the newest GitHub release:
+#
+#   FEED_URL=https://github.com/ReppDen/dockfixer/releases/latest/download/appcast.xml
+#
+# A local test of the update path points it at a server of its own.
+FEED_URL ?=
 
 # The public half of the EdDSA key every update is signed with (Sparkle's
 # SUPublicEDKey). Public by nature; the private half is the SPARKLE_ED_KEY
@@ -49,8 +54,8 @@ ICONSET := $(BUILD_DIR)/AppIcon.iconset
 ICNS    := $(BUILD_DIR)/AppIcon.icns
 
 DEV_IDENTITY := DockFixer Dev
-# Empty: a development build does not update itself.
-DEV_FEED_URL ?=
+
+SPARKLE := $(APP)/Contents/Frameworks/Sparkle.framework
 
 .PHONY: all app icon readme-icon readme-hero run test install uninstall dev dev-cert reset-tcc zip clean help
 
@@ -62,7 +67,7 @@ dev-cert:
 
 ## dev: build and install signed with the local identity, with debug logging, so the Accessibility grant survives rebuilds
 dev: dev-cert
-	$(MAKE) install SIGN_IDENTITY="$(DEV_IDENTITY)" LOG_LEVEL=debug USAGE_KEY="$(USAGE_KEY)" FEED_URL="$(DEV_FEED_URL)" ARCHS="$$(uname -m)"
+	$(MAKE) install SIGN_IDENTITY="$(DEV_IDENTITY)" LOG_LEVEL=debug USAGE_KEY="$(USAGE_KEY)" FEED_URL="$(FEED_URL)" ARCHS="$$(uname -m)"
 
 ## icon: draw the app icon and build AppIcon.icns
 icon: $(ICNS)
@@ -103,11 +108,22 @@ app: $(ICNS)
 	for arch in $(ARCHS); do swift build -c release --arch $$arch || exit 1; done
 	lipo -create -output "$(APP)/Contents/MacOS/$(APP_NAME)" \
 		$(foreach arch,$(ARCHS),"$$(swift build -c release --arch $(arch) --show-bin-path)/$(APP_NAME)")
-	# Sparkle, as built by SwiftPM, keeping its own signature. It comes as a
-	# universal binary already. SwiftPM links it from next to the binary; in a
-	# bundle it lives in Frameworks.
+	# Sparkle, as SwiftPM fetched it: a universal binary already, ad-hoc
+	# signed, and re-signed below. SwiftPM links it from next to the binary;
+	# in a bundle it lives in Frameworks.
 	mkdir -p "$(APP)/Contents/Frameworks"
-	ditto "$$(swift build -c release --arch $(firstword $(ARCHS)) --show-bin-path)/Sparkle.framework" "$(APP)/Contents/Frameworks/Sparkle.framework"
+	ditto "$$(swift build -c release --arch $(firstword $(ARCHS)) --show-bin-path)/Sparkle.framework" "$(SPARKLE)"
+	# The XPC services are for sandboxed apps, which cannot launch the
+	# installer themselves; DockFixer is not sandboxed and Sparkle runs
+	# Autoupdate directly. Sparkle's documentation says they may be removed.
+	rm -rf "$(SPARKLE)/XPCServices" "$(SPARKLE)/Versions/B/XPCServices"
+	# The search paths SwiftPM leaves in the binary are for running it from
+	# .build: the toolchain's own Swift libraries, a duplicate /usr/lib/swift
+	# and @loader_path. The Swift runtime is part of macOS 14 and linked by
+	# absolute path, so the bundle needs Frameworks and nothing else — and a
+	# hardened binary should not go looking in a toolchain directory.
+	otool -l "$(APP)/Contents/MacOS/$(APP_NAME)" | awk '$$1 == "path" { print $$2 }' | sort -u | \
+		while read -r rpath; do install_name_tool -delete_rpath "$$rpath" "$(APP)/Contents/MacOS/$(APP_NAME)" || exit 1; done
 	install_name_tool -add_rpath @executable_path/../Frameworks "$(APP)/Contents/MacOS/$(APP_NAME)"
 	cp "$(ICNS)" "$(APP)/Contents/Resources/AppIcon.icns"
 	# Octicons' GitHub mark (MIT), for the GitHub button.
@@ -116,7 +132,16 @@ app: $(ICNS)
 		-e 's/__LOG_LEVEL__/$(LOG_LEVEL)/g' -e 's/__USAGE_KEY__/$(USAGE_KEY)/g' \
 		-e 's|__FEED_URL__|$(FEED_URL)|g' -e 's|__ED_PUBLIC_KEY__|$(ED_PUBLIC_KEY)|g' \
 		Resources/Info.plist > "$(APP)/Contents/Info.plist"
-	codesign --force --sign "$(SIGN_IDENTITY)" --identifier "$(BUNDLE_ID)" "$(APP)"
+	# Inside out, each part with the same identity and the hardened runtime,
+	# as Sparkle's documentation does it; --deep would sign in an order of its
+	# own and is deprecated for signing. The app's entitlements turn off
+	# library validation, which needs a Team ID a self-signed certificate
+	# does not have: see Resources/DockFixer.entitlements.
+	codesign --force --options runtime --sign "$(SIGN_IDENTITY)" "$(SPARKLE)/Versions/B/Autoupdate"
+	codesign --force --options runtime --sign "$(SIGN_IDENTITY)" "$(SPARKLE)/Versions/B/Updater.app"
+	codesign --force --options runtime --sign "$(SIGN_IDENTITY)" "$(SPARKLE)"
+	codesign --force --options runtime --sign "$(SIGN_IDENTITY)" --identifier "$(BUNDLE_ID)" \
+		--entitlements Resources/DockFixer.entitlements "$(APP)"
 	@echo "built $(APP) (signed with '$(SIGN_IDENTITY)')"
 
 ## run: build and launch

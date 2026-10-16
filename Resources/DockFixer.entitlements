@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The one exception to the hardened runtime, and a necessary one.
+	     Library validation only loads a framework signed by Apple or by the
+	     app's own Team ID, and a self-signed certificate has no Team ID at
+	     all: with validation on, dyld refuses Sparkle.framework at launch
+	     ("mapping process and mapped file (non-platform) have different Team
+	     IDs") even though both carry the same signature. Tried without it
+	     first; the app did not start. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>

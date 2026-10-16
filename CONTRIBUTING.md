@@ -51,10 +51,12 @@ itself.
 | `Sources/DockFixerCore/AX.swift`, `WindowScanner.swift` | Accessibility API: listing windows, moving them, checking it stuck. |
 | `Sources/DockFixerCore/DisplayWatcher.swift`, `WindowWatcher.swift` | What triggers a pass: Dock and display changes, new windows. |
 | `Sources/DockFixerCore/Log.swift`, `Usage.swift` | The log file, and the daily usage event. |
+| `Sources/DockFixerCore/BugReport.swift` | What an in-app bug report sends, and the last 24 hours of the log. |
 | `Sources/DockFixer/` | SwiftUI window, menu-bar item, settings, Sparkle. |
 | `Tests/DockFixerTests/` | Unit tests. |
 | `Scripts/make-icon.swift`, `Scripts/make-hero.swift` | Draw the app icon and the README picture (`make readme-icon`, `make readme-hero`). |
 | `Scripts/appcast.sh`, `Scripts/cask.sh` | The Sparkle feed and the Homebrew cask for a release, run by `.github/workflows/release.yml`. |
+| `Scripts/verify-update.swift` | Checks a release archive against the update key inside the app, before it is published. |
 
 ## Things to know
 
@@ -79,3 +81,19 @@ itself.
   needed, not only what it does.
 - Commit messages: `fix:`, `feat:`, `docs:` or `chore:` and a short lower-case
   subject.
+
+## Releases
+
+Releases are made by the maintainer, by pushing a tag:
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+The [release workflow](.github/workflows/release.yml) takes the version from
+the tag, tests, builds a universal app signed with the release certificate,
+checks that it launches and that its update signature verifies, publishes the
+GitHub release with the zip and the Sparkle feed, and updates the Homebrew
+cask. Installed copies pick the release up within a day. Only `vX.Y.Z` tags
+start it, and every version must be higher than the last: Sparkle compares
+them as numbers.

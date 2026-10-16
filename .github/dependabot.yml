@@ -1,0 +1,11 @@
+# The workflows' actions are pinned to commit hashes, so a tag moved under
+# them cannot change what runs with the release secrets. Dependabot keeps
+# those hashes current. Swift packages are left out: Sparkle is pinned to an
+# exact version on purpose and updated by hand, together with the checksum
+# of its tools in release.yml.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

@@ -76,7 +76,10 @@ if ! security list-keychains -d user | grep -q "$KEYCHAIN"; then
 fi
 
 security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
-security import "$TMP/identity.p12" -k "$KEYCHAIN" -P "$P12_PASS" -A -T /usr/bin/codesign
+# Non-extractable, and usable by codesign only: not -A, which would let any
+# process read the key without asking. Whoever holds this key can sign code
+# that macOS takes for the dev build, Accessibility grant included.
+security import "$TMP/identity.p12" -k "$KEYCHAIN" -P "$P12_PASS" -x -T /usr/bin/codesign
 # Lets codesign use the key without an interactive prompt.
 security set-key-partition-list -S apple-tool:,apple:,codesign: \
     -s -k "$KEYCHAIN_PASS" "$KEYCHAIN" >/dev/null

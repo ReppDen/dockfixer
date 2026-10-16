@@ -2,10 +2,18 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    # Plain versions only. A tag like v0.2.0-beta would be published as the
+    # latest release, and the latest release is what every installed copy
+    # updates to.
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
 
 permissions:
   contents: write
+
+# Two tags pushed close together must not race each other to the tap.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 env:
   # The certificate every release is signed with. macOS ties the Accessibility
@@ -15,6 +23,10 @@ env:
   # fingerprint, not just signed.
   RELEASE_CERT_SHA1: 7ee1e6b6e630e61adfdc1fbdb2c904cc99812e81
   SIGN_IDENTITY: DockFixer Release
+  # Where the app looks for updates. Only release builds carry it: a build
+  # from source has no feed and never replaces itself with a release, whose
+  # different signature would cost it the Accessibility grant.
+  FEED_URL: https://github.com/ReppDen/dockfixer/releases/latest/download/appcast.xml
   # Sparkle's command-line tools, for signing the archive. The same version as
   # the framework in Package.swift.
   SPARKLE_VERSION: 2.10.0
@@ -22,16 +34,21 @@ env:
 
 jobs:
   release:
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      # Actions are pinned to commits: this job holds the release signing key
+      # and a token that can publish releases. Dependabot keeps the pins fresh.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Test
         run: make test
 
       - name: Import the signing certificate
         # A keychain of its own on the runner, unlocked, holding only the
-        # release identity; it goes away with the runner.
+        # release identity. The key is imported non-extractable, and the
+        # keychain is deleted as soon as the app is signed.
         env:
           P12: ${{ secrets.RELEASE_CERT_P12 }}
           P12_PASSWORD: ${{ secrets.RELEASE_CERT_PASSWORD }}
@@ -42,7 +59,7 @@ jobs:
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security set-keychain-settings "$KEYCHAIN"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          security import "$RUNNER_TEMP/release.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security import "$RUNNER_TEMP/release.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -x -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/release.p12"
@@ -54,15 +71,38 @@ jobs:
         # so a fork's release sends nothing to this project unless it sets its own.
         env:
           USAGE_KEY: ${{ secrets.USAGE_KEY }}
-        run: make zip VERSION="${GITHUB_REF_NAME#v}" USAGE_KEY="$USAGE_KEY" SIGN_IDENTITY="$SIGN_IDENTITY"
-
-      - name: Check the signature
         run: |
-          codesign --verify --deep --strict build/DockFixer.app
-          REQ="$(codesign -d -r- build/DockFixer.app 2>&1 | grep designated)"
+          make zip VERSION="${GITHUB_REF_NAME#v}" USAGE_KEY="$USAGE_KEY" \
+            SIGN_IDENTITY="$SIGN_IDENTITY" FEED_URL="$FEED_URL"
+          security delete-keychain "$RUNNER_TEMP/release.keychain-db"
+
+      - name: Check the bundle
+        run: |
+          APP=build/DockFixer.app
+          codesign --verify --deep --strict "$APP"
+          REQ="$(codesign -d -r- "$APP" 2>&1 | grep designated)"
           echo "$REQ"
           echo "$REQ" | grep -q "certificate leaf = H\"$RELEASE_CERT_SHA1\"" \
             || { echo "signed with the wrong certificate"; exit 1; }
+          ARCHS="$(lipo -archs "$APP/Contents/MacOS/DockFixer")"
+          echo "architectures: $ARCHS"
+          case "$ARCHS" in *arm64*x86_64*|*x86_64*arm64*) ;; *) echo "not a universal binary"; exit 1 ;; esac
+          FEED="$(/usr/libexec/PlistBuddy -c 'Print SUFeedURL' "$APP/Contents/Info.plist")"
+          [ "$FEED" = "$FEED_URL" ] || { echo "SUFeedURL is '$FEED'"; exit 1; }
+
+      - name: Launch it
+        # A release that crashes on launch would still reach everyone within a
+        # day, and an app that cannot run cannot update itself out of it. So
+        # it has to stay up for a while first. Without the Accessibility grant
+        # it shows its first-run window and waits, which is enough to know the
+        # binary, the frameworks and the signature all load.
+        run: |
+          build/DockFixer.app/Contents/MacOS/DockFixer &
+          PID=$!
+          sleep 10
+          kill -0 "$PID" || { echo "DockFixer exited within 10 seconds"; cat ~/Library/Logs/DockFixer/dockfixer.log || true; exit 1; }
+          kill "$PID"
+          cat ~/Library/Logs/DockFixer/dockfixer.log
 
       - name: Sign the update and write the feed
         id: sum
@@ -84,6 +124,12 @@ jobs:
             > build/appcast.xml
           rm "$RUNNER_TEMP/ed.key"
           cat build/appcast.xml
+          # The signature has to verify with the key inside the app, or no
+          # installed copy will ever take another update.
+          swift Scripts/verify-update.swift "$FILE" build/appcast.xml build/DockFixer.app
+          # The same archive under a name that never changes, so the README
+          # can link to releases/latest/download/DockFixer.zip.
+          cp "$FILE" build/DockFixer.zip
           echo "file=$FILE" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "sha=$(shasum -a 256 "$FILE" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
@@ -91,44 +137,46 @@ jobs:
       # The feed goes up with the release, and the app finds it through
       # GitHub's latest-release redirect: publishing the release is what makes
       # every installed copy update to it.
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             ${{ steps.sum.outputs.file }}
+            build/DockFixer.zip
             build/appcast.xml
           body: |
-            DockFixer ${{ github.ref_name }}
+            SHA-256 of both zips: `${{ steps.sum.outputs.sha }}`
 
-            SHA-256: `${{ steps.sum.outputs.sha }}`
-
-            Install with Homebrew:
+            **Homebrew**
 
             ```sh
             brew install reppden/tap/dockfixer
             ```
 
-            Or by hand. The app is signed with the project's own certificate,
-            not notarised by Apple, so macOS needs to be told to let it run:
+            **Download** `DockFixer.zip` below, unzip it and move DockFixer.app
+            to Applications. DockFixer is signed with the project's own
+            certificate but not notarized by Apple, so the first time macOS
+            refuses to open it: go to System Settings → Privacy & Security and
+            click **Open Anyway**, or run
 
             ```sh
-            unzip DockFixer-*.zip -d /Applications
             xattr -dr com.apple.quarantine /Applications/DockFixer.app
-            open /Applications/DockFixer.app
             ```
 
-            Then grant Accessibility access in
-            System Settings → Privacy & Security → Accessibility.
-            DockFixer updates itself from then on, and the access stays.
+            Then grant Accessibility access when DockFixer asks. Installed
+            copies update themselves; the access stays.
 
       - name: Update the Homebrew cask
-        # A deploy key with write access to the tap and nothing else.
+        # A deploy key with write access to the tap and nothing else. GitHub's
+        # host keys come from its API over HTTPS rather than being trusted on
+        # first sight.
         env:
           TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "$TAP_DEPLOY_KEY" > ~/.ssh/tap
           chmod 600 ~/.ssh/tap
-          export GIT_SSH_COMMAND="ssh -i ~/.ssh/tap -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          curl -sSf https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/tap -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
           git clone git@github.com:ReppDen/homebrew-tap.git "$RUNNER_TEMP/tap"
           mkdir -p "$RUNNER_TEMP/tap/Casks"
           Scripts/cask.sh "${{ steps.sum.outputs.version }}" "${{ steps.sum.outputs.sha }}" \
@@ -137,6 +185,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Casks/dockfixer.rb
-          git commit -m "dockfixer ${{ steps.sum.outputs.version }}"
-          git push
+          # A re-run of the same tag has nothing new to say.
+          if git diff --cached --quiet; then
+            echo "cask already at ${{ steps.sum.outputs.version }}"
+          else
+            git commit -m "dockfixer ${{ steps.sum.outputs.version }}"
+            git push
+          fi
           rm ~/.ssh/tap

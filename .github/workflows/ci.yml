@@ -5,11 +5,17 @@ on:
     branches: [main]
   pull_request:
 
+# Pull requests come from anyone; the job reads the code and nothing else.
+permissions:
+  contents: read
+
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Toolchain
         run: swift --version
@@ -22,5 +28,6 @@ jobs:
 
       - name: Check the bundle is signed and complete
         run: |
-          codesign --verify --verbose=2 build/DockFixer.app
+          codesign --verify --deep --strict --verbose=2 build/DockFixer.app
           /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' build/DockFixer.app/Contents/Info.plist
+          lipo -archs build/DockFixer.app/Contents/MacOS/DockFixer

@@ -52,10 +52,9 @@ public struct BugReport: Sendable {
 
     /// The event as PostHog receives it.
     ///
-    /// `distinct_id` is the install ID of the usage statistics when there is
-    /// one, so a report can be put next to that installation's days; with
-    /// statistics off there is none, and a random ID made for this one report
-    /// is used and not kept. `$process_person_profile: false` stops PostHog
+    /// `distinct_id` is a random ID made for this one report and not kept, so
+    /// a report cannot be put next to the usage statistics of the same Mac.
+    /// `$process_person_profile: false` stops PostHog
     /// from making a person out of it either way, and `$geoip_disable` keeps
     /// the country and city off it, as with the daily event.
     public func event(distinctID: String, eventID: String, timestamp: Date, apiKey: String) -> Data {

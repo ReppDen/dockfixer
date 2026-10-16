@@ -498,13 +498,11 @@ final class AppState: ObservableObject {
         ]
     }
 
-    /// The usage statistics' install ID, so a report can be put next to that
-    /// installation's days. With statistics off there is none — switching
-    /// them off deletes it — and a report gets a random ID that is not kept:
-    /// sending one report must not leave behind an ID that statistics were
-    /// switched off to be rid of.
+    /// A fresh random ID for every report. The usage statistics' install ID
+    /// would let a report, which may carry an email address, be put next to
+    /// that Mac's daily counts; what helps with a bug is in the report itself.
     var distinctIDForReport: String {
-        UserDefaults.standard.string(forKey: Self.usageInstallIDKey) ?? UUID().uuidString.lowercased()
+        UUID().uuidString.lowercased()
     }
 
     /// The project key, baked into the bundle by the Makefile. A build without

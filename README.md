@@ -94,7 +94,7 @@ permission stays across updates.
 
 Once a day DockFixer sends one event to PostHog (EU servers): the app version,
 the date, how many windows it moved, and a random ID made on this Mac so a day
-is not counted twice. No window titles, no app names, no IP address. Turn off **Send anonymous usage statistics** and nothing
+is not counted twice. No window titles, no app names, no IP address. Turn off **Send usage statistics** and nothing
 is sent; the local counts and the random ID are deleted. The totals are public:
 [DockFixer dashboard](https://eu.posthog.com/shared/O63pcUH2gzDFECtm1r3HAublIhL13w).
 

@@ -229,6 +229,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Everything is driven from the window and the menu-bar item instead.
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // The log and Report a Bug windows close for real, unlike the main
+        // window, whose close button only hides it. When one of them was the
+        // last window up — opened from the menu with the main window away —
+        // the app would keep a Dock icon with nothing behind it. A turn later
+        // the closing window is no longer visible and the check is accurate.
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.retreatToMenuBar() }
+            }
+        }
+
         // Restarted by an automatic update, with the grant intact: nobody
         // opened the app, so it goes straight back to the menu bar, as it was.
         // Without the grant the window is the one thing that can say so, and

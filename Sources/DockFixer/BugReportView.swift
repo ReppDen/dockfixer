@@ -54,6 +54,9 @@ final class BugReportForm: ObservableObject {
         let settings = state.settingsForReport
         let displays = state.displaysSummary
         let distinctID = state.distinctIDForReport
+        // Taken now: the form is locked while sending, but what goes out is
+        // what was on screen when Send was pressed.
+        let message = self.message, email = self.email, attachLog = self.attachLog
         Task {
             let logText = attachLog ? await recentLog() : nil
             let report = BugReport(message: message,
@@ -70,9 +73,9 @@ final class BugReportForm: ObservableObject {
             let size = logText.map { " with \(ByteCountFormatter.string(fromByteCount: Int64($0.utf8.count), countStyle: .file)) of log" } ?? " without the log"
             if delivery.isAccepted {
                 log.info("bug report sent\(size) — \(delivery.description)")
-                message = ""
-                email = ""
-                attachLog = true
+                self.message = ""
+                self.email = ""
+                self.attachLog = true
                 status = .sent
             } else {
                 log.add(level: .fail, app: "DockFixer", title: "",
@@ -129,17 +132,20 @@ struct BugReportView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .stroke(Color(nsColor: .separatorColor)))
+                    .disabled(form.status == .sending)
             }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Your email (optional)")
                 TextField("", text: $form.email, prompt: Text("name@example.com"))
                     .textFieldStyle(.roundedBorder)
+                    .disabled(form.status == .sending)
                 caption("Only to answer you. Leave it empty if you don't need an answer.")
             }
 
             VStack(alignment: .leading, spacing: 6) {
                 Toggle("Attach the log", isOn: $form.attachLog)
+                    .disabled(form.status == .sending)
                 // Literally what the log holds: application names, and window
                 // titles cut to thirty characters (see `Log.format`).
                 caption("The last 24 hours of the DockFixer log. It has app names and the start of window titles.")

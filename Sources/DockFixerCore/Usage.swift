@@ -11,8 +11,8 @@ import Foundation
 ///
 /// The only other thing that goes to the same project is a bug report, and
 /// only when someone writes one and presses Send: see `BugReport.swift` for
-/// what it carries. It is not governed by the statistics switch, and with
-/// statistics off it carries no install ID either.
+/// what it carries. It is not governed by the statistics switch, and it
+/// never carries the install ID.
 ///
 /// Facts are written as they happen, to a small journal of their own, and
 /// the sums are made when it is time to send. The log would have been the

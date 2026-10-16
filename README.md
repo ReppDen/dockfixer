@@ -54,8 +54,9 @@ turn on the switch next to DockFixer and the window moves on to the settings.
 DockFixer can only fix what happens while it runs, so turn on **Launch at
 login**.
 
-DockFixer sends a small usage count once a day. To opt out, turn off **Send
-usage statistics** in its settings; [Privacy](#privacy) has the details.
+DockFixer collects usage statistics, and they are public:
+[dashboard](https://eu.posthog.com/shared/O63pcUH2gzDFECtm1r3HAublIhL13w).
+Turn off **Send usage statistics** in the settings to opt out.
 
 ## What it does
 
@@ -95,11 +96,9 @@ permission stays across updates.
 
 ## Privacy
 
-Once a day DockFixer sends one event to PostHog (EU servers): the app version,
-the date, how many windows it moved, and a random ID made on this Mac so a day
-is not counted twice. No window titles, no app names, no IP address. Turn off **Send usage statistics** and nothing
-is sent; the local counts and the random ID are deleted. The totals are public:
-[DockFixer dashboard](https://eu.posthog.com/shared/O63pcUH2gzDFECtm1r3HAublIhL13w).
+DockFixer collects usage statistics. The totals are public:
+[dashboard](https://eu.posthog.com/shared/O63pcUH2gzDFECtm1r3HAublIhL13w).
+Turn off **Send usage statistics** in the settings and nothing is sent.
 
 <details>
 <summary>Exactly what is sent</summary>

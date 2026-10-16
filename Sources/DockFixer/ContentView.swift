@@ -141,11 +141,11 @@ struct ContentView: View {
                 }
                 row("Updates") { UpdatesRow(updater: state.updater) }
                 row("Statistics") {
-                    // Literally what goes out, and nothing it does not say:
-                    // see UsageReport.event.
+                    // What exactly goes out is in the README, linked from
+                    // there to UsageReport.event; the switch only has to say
+                    // what it is.
                     option(isOn: $state.sendUsageStatistics,
-                           title: "Send usage statistics",
-                           detail: "One line a day: a random ID made on this Mac, the app version, the date, and how many windows were moved. No window names, no app names.")
+                           title: "Send usage statistics")
                 }
             }
             Divider()
@@ -400,17 +400,7 @@ private struct UpdatesRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 3) {
-                Toggle("Install updates automatically", isOn: $updater.automaticallyUpdates)
-                // Literally what Updater does: a daily check, and an install
-                // held back while a window is open. Off, Sparkle asks; an
-                // update it already has still goes in at quit (Updater).
-                Text("DockFixer checks for a new version once a day and installs it when this window is closed. Off, it asks first, and an update that is already downloaded waits until you quit DockFixer.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 20)
-            }
+            Toggle("Install updates automatically", isOn: $updater.automaticallyUpdates)
             HStack(spacing: 8) {
                 Button { updater.checkForUpdates() } label: {
                     Label("Check for Updates…", systemImage: "arrow.triangle.2.circlepath")

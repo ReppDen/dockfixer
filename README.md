@@ -88,9 +88,9 @@ permission stays across updates.
 
 ## Privacy
 
-Once a day DockFixer sends one anonymous event to PostHog (EU servers): the app
-version, the date, and how many windows it moved. No window titles, no app
-names, no IP address. Turn off **Send anonymous usage statistics** and nothing
+Once a day DockFixer sends one event to PostHog (EU servers): the app version,
+the date, how many windows it moved, and a random ID made on this Mac so a day
+is not counted twice. No window titles, no app names, no IP address. Turn off **Send anonymous usage statistics** and nothing
 is sent; the local counts and the random ID are deleted. The totals are public:
 [DockFixer dashboard](https://eu.posthog.com/shared/O63pcUH2gzDFECtm1r3HAublIhL13w).
 
@@ -124,9 +124,12 @@ fork or a local build, sends nothing. The code is one file:
 
 </details>
 
-**Report a Bug** in the app sends what you write, your email if you give one,
-and the last 24 hours of the log, and only when you press Send. The log names
-the apps and window titles of the windows DockFixer moved.
+**Report a Bug** in the app sends nothing until you press Send. Then it sends
+what you wrote, your email if you gave one, the DockFixer and macOS versions,
+your DockFixer settings and screens, and, unless you untick it, the last 24
+hours of the log. The log names the apps DockFixer moved windows of and the
+first 30 characters of their titles; **See What's Sent** shows it first.
+Reports go to the same PostHog project and are read only by the developer.
 
 ## Bugs and questions
 

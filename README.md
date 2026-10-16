@@ -63,8 +63,8 @@ login**.
   **Fix Windows Now** does the same for every window on demand.
 - **Keeps windows against the Dock.** When the Dock shrinks or moves to another
   edge, a window that was against it follows: stretched if it filled the
-  screen, slid along otherwise. A window within about 32 pixels of the Dock is
-  put against it.
+  screen, slid along otherwise. A window left a few points short of the Dock
+  is put against it.
 - **Fills the space the Dock leaves.** When the Dock moves to another display,
   for example because you plugged in a monitor, windows on the display it left
   stretch or slide into the strip it used.

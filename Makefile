@@ -14,6 +14,10 @@ VERSION   := 0.1.0
 # See CONTRIBUTING.md for why this matters.
 SIGN_IDENTITY ?= -
 
+# Releases run on Apple silicon and Intel alike. "make dev" builds only for the
+# machine it runs on, which is half the wait.
+ARCHS ?= arm64 x86_64
+
 # Baked into the bundle. "make dev" overrides it with "debug" so a local build
 # always explains itself; a release stays at "info", where every line is an
 # event rather than a running commentary.
@@ -58,7 +62,7 @@ dev-cert:
 
 ## dev: build and install signed with the local identity, with debug logging, so the Accessibility grant survives rebuilds
 dev: dev-cert
-	$(MAKE) install SIGN_IDENTITY="$(DEV_IDENTITY)" LOG_LEVEL=debug USAGE_KEY="$(USAGE_KEY)" FEED_URL="$(DEV_FEED_URL)"
+	$(MAKE) install SIGN_IDENTITY="$(DEV_IDENTITY)" LOG_LEVEL=debug USAGE_KEY="$(USAGE_KEY)" FEED_URL="$(DEV_FEED_URL)" ARCHS="$$(uname -m)"
 
 ## icon: draw the app icon and build AppIcon.icns
 icon: $(ICNS)
@@ -91,14 +95,19 @@ $(ICNS): Scripts/make-icon.swift
 
 ## app: build a release binary and wrap it in a .app bundle
 app: $(ICNS)
-	swift build -c release
 	rm -rf "$(APP)"
 	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
-	cp "$$(swift build -c release --show-bin-path)/$(APP_NAME)" "$(APP)/Contents/MacOS/$(APP_NAME)"
-	# Sparkle, as built by SwiftPM, keeping its own signature. SwiftPM links it
-	# from next to the binary; in a bundle it lives in Frameworks.
+	# One build per architecture, joined with lipo. `swift build --arch a
+	# --arch b` would do it in one go, but only with Xcode's build system,
+	# and the Command Line Tools are all this project asks for.
+	for arch in $(ARCHS); do swift build -c release --arch $$arch || exit 1; done
+	lipo -create -output "$(APP)/Contents/MacOS/$(APP_NAME)" \
+		$(foreach arch,$(ARCHS),"$$(swift build -c release --arch $(arch) --show-bin-path)/$(APP_NAME)")
+	# Sparkle, as built by SwiftPM, keeping its own signature. It comes as a
+	# universal binary already. SwiftPM links it from next to the binary; in a
+	# bundle it lives in Frameworks.
 	mkdir -p "$(APP)/Contents/Frameworks"
-	ditto "$$(swift build -c release --show-bin-path)/Sparkle.framework" "$(APP)/Contents/Frameworks/Sparkle.framework"
+	ditto "$$(swift build -c release --arch $(firstword $(ARCHS)) --show-bin-path)/Sparkle.framework" "$(APP)/Contents/Frameworks/Sparkle.framework"
 	install_name_tool -add_rpath @executable_path/../Frameworks "$(APP)/Contents/MacOS/$(APP_NAME)"
 	cp "$(ICNS)" "$(APP)/Contents/Resources/AppIcon.icns"
 	# Octicons' GitHub mark (MIT), for the GitHub button.

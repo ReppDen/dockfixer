@@ -166,3 +166,41 @@ func usageReporter(_ t: TestRun) {
     flush(at: "2026-10-15T11:00:00Z")
     t.expect(fake.sent.count == 2, "nothing is sent twice")
 }
+
+/// A journal that can never be sent keeps the last month of days and lets
+/// the older ones go, so it does not grow for ever.
+@MainActor
+func usageReporterCap(_ t: TestRun) {
+    let journal = temporaryJournal()
+    defer { journal.erase() }
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("dockfixer-usage-log-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let log = Log(directory: dir, level: .info)
+
+    // Forty days in September and October, each with one window.
+    let start = utc("2026-09-01T12:00:00Z")
+    for offset in 0..<40 {
+        journal.record(.pushedOut, at: start.addingTimeInterval(Double(offset) * 86_400))
+    }
+    let all = journal.days(before: "2026-10-11")
+    t.expect(all.count == 40, "forty days recorded: \(all.count)")
+
+    let reporter = UsageReporter(journal: journal, installID: "abc", version: "0.1.0", apiKey: "k", log: log) { _ in
+        .failed("offline")
+    }
+    var done = false
+    Task { @MainActor in
+        await reporter.flush(now: utc("2026-10-11T09:00:00Z"))
+        done = true
+    }
+    while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+
+    let kept = journal.days(before: "2026-10-11")
+    t.expect(kept.count == UsageReporter.maxUnsentDays, "the journal keeps \(UsageReporter.maxUnsentDays) days, keeps \(kept.count)")
+    t.expect(kept.first?.day == all[40 - UsageReporter.maxUnsentDays].day && kept.last?.day == "2026-10-10",
+             "the newest days are the ones kept: \(kept.first?.day ?? "-") … \(kept.last?.day ?? "-")")
+    t.expect(kept.allSatisfy { $0.pushedOut == 1 }, "the kept days are intact")
+    t.expect(log.entries.contains { $0.detail.hasPrefix("usage: 9 unsent days older than") },
+             "dropping is logged: \(log.entries.map(\.detail))")
+}

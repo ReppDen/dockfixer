@@ -19,7 +19,8 @@ import Foundation
 /// obvious source, but it is written for people — titles cut short, lines
 /// rotated away at a size limit, a format that moves — and a machine reading
 /// it would break the first time it changed. The journal is forty bytes a
-/// window and cleans itself up once a day has been sent.
+/// window and cleans itself up once a day has been sent — or, when sending
+/// keeps failing, once a day is more than a month behind.
 
 /// What a moved window counts as. One per switch, plus a mark that the app
 /// was running at all, so an installation that moved nothing that day is
@@ -123,6 +124,15 @@ public final class UsageJournal: @unchecked Sendable {
     public func prune(day: String) {
         lock.lock(); defer { lock.unlock() }
         let kept = rawLines().filter { Self.parse($0)?.day != day }
+        let text = kept.isEmpty ? "" : kept.joined(separator: "\n") + "\n"
+        try? text.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Drops every day before `day`, sent or not. What keeps the journal
+    /// from growing for ever on a machine that can never reach the server.
+    public func prune(before day: String) {
+        lock.lock(); defer { lock.unlock() }
+        let kept = rawLines().filter { (Self.parse($0)?.day ?? "") >= day }
         let text = kept.isEmpty ? "" : kept.joined(separator: "\n") + "\n"
         try? text.write(to: url, atomically: true, encoding: .utf8)
     }
@@ -249,6 +259,12 @@ public final class UsageReporter {
     /// wake are the retries, and a launch straight after a wake is not two.
     private let retryAfter: TimeInterval = 10 * 60
 
+    /// How many finished days wait to be sent at most. A machine behind a
+    /// firewall that never lets the request through would otherwise keep
+    /// every day it was ever used; a month is enough to ride out a long
+    /// stretch offline, and a day older than that says little anyway.
+    public static let maxUnsentDays = 31
+
     public init(journal: UsageJournal, installID: String, version: String, apiKey: String,
                 log: Log, send: @escaping Send) {
         self.journal = journal
@@ -266,7 +282,15 @@ public final class UsageReporter {
         isFlushing = true
         defer { isFlushing = false }
 
-        for day in journal.days(before: UsageJournal.day(of: now)) {
+        var finished = journal.days(before: UsageJournal.day(of: now))
+        if finished.count > Self.maxUnsentDays {
+            let dropped = finished.count - Self.maxUnsentDays
+            finished.removeFirst(dropped)
+            journal.prune(before: finished[0].day)
+            log.info("usage: \(dropped) unsent day\(dropped == 1 ? "" : "s") older than \(finished[0].day) dropped")
+        }
+
+        for day in finished {
             let data = UsageReport.event(for: day, installID: installID, version: version, apiKey: apiKey)
             switch await send(data) {
             case .accepted:

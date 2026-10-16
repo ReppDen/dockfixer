@@ -403,18 +403,29 @@ private struct UpdatesRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Toggle("Install updates automatically", isOn: $updater.automaticallyUpdates)
                 // Literally what Updater does: a daily check, and an install
-                // held back while a window is open. Off, Sparkle asks.
-                Text("DockFixer checks for a new version once a day and installs it when this window is closed. Off, it asks first.")
+                // held back while a window is open. Off, Sparkle asks; an
+                // update it already has still goes in at quit (Updater).
+                Text("DockFixer checks for a new version once a day and installs it when this window is closed. Off, it asks first, and an update that is already downloaded waits until you quit DockFixer.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, 20)
             }
-            Button { updater.checkForUpdates() } label: {
-                Label("Check for Updates…", systemImage: "arrow.triangle.2.circlepath")
+            HStack(spacing: 8) {
+                Button { updater.checkForUpdates() } label: {
+                    Label("Check for Updates…", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .buttonStyle(SoftButtonStyle())
+                .disabled(!updater.canCheckForUpdates)
+                // The update waits for this very window to close; this is the
+                // way to have it now without closing it.
+                if updater.updateIsWaiting {
+                    Button { updater.installNow() } label: {
+                        Label("Restart to Update", systemImage: "arrow.down.circle")
+                    }
+                    .buttonStyle(SoftButtonStyle(emphasised: true))
+                }
             }
-            .buttonStyle(SoftButtonStyle())
-            .disabled(!updater.canCheckForUpdates)
         }
     }
 }

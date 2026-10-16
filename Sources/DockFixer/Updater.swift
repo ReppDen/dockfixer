@@ -19,7 +19,14 @@ import Sparkle
 /// a display being unplugged. So the update is installed straight away and the
 /// app restarted, unless a window of the app is open: someone is looking at
 /// it, and it should not vanish under the pointer. Then it waits until the
-/// window is closed.
+/// window is closed, or until someone presses "Restart to Update".
+///
+/// With "Install updates automatically" off, Sparkle does not download on its
+/// own: it shows its window and asks. An update that was already downloaded
+/// when the switch went off is no longer installed when the window closes,
+/// but Sparkle still installs it when the app quits — that part is Sparkle's
+/// and cannot be turned off from here (`SPUUpdaterDelegate.h`, on
+/// `willInstallUpdateOnQuit`).
 @MainActor
 final class Updater: NSObject, ObservableObject {
 
@@ -31,17 +38,35 @@ final class Updater: NSObject, ObservableObject {
             guard oldValue != automaticallyUpdates else { return }
             controller.updater.automaticallyDownloadsUpdates = automaticallyUpdates
             log.info("install updates automatically: \(automaticallyUpdates ? "enabled" : "disabled")")
+            // Switched off while an update waits for the window to close: the
+            // waiting is what "automatically" meant, so it stops here. Turning
+            // the switch back on does not bring it back; Sparkle has the
+            // update and installs it at quit either way.
+            if !automaticallyUpdates, pendingInstall != nil {
+                cancelPendingInstall()
+                log.info("updates: the downloaded update will not be installed now — Sparkle installs it when DockFixer quits")
+            }
         }
     }
 
-    /// False while a check is already running, so the button cannot start
-    /// a second one.
+    /// False while a check is already running, and in a build without a
+    /// feed, where Sparkle is never started: the button and the menu item are
+    /// disabled rather than doing nothing.
     @Published private(set) var canCheckForUpdates = false
 
-    /// Set just before an automatic install restarts the app, read once by the
-    /// next launch so it comes up in the menu bar, as at login, rather than
-    /// opening its window at someone who did not ask for it.
-    private static let relaunchedAfterUpdateKey = "relaunchedAfterUpdate"
+    /// An update is downloaded and waits for the window to be closed. The
+    /// window and the menu offer to install it right away instead.
+    @Published private(set) var updateIsWaiting = false
+
+    /// The version an automatic install is about to restart into, written
+    /// just before the install and read once by the next launch, so that it
+    /// comes up in the menu bar, as at login, rather than opening its window
+    /// at someone who did not ask for it.
+    ///
+    /// A version rather than a flag: if the install fails, a flag would stay
+    /// behind and hide the window of whatever launch came next, perhaps days
+    /// later. A version only matches the launch that is that version.
+    private static let relaunchVersionKey = "relaunchedAfterUpdateToVersion"
 
     /// How often a waiting update looks again for the window to be gone. The
     /// close button hides the window rather than closing it, so there is no
@@ -52,6 +77,7 @@ final class Updater: NSObject, ObservableObject {
     private var controller: SPUStandardUpdaterController!
     private var canCheckObservation: NSKeyValueObservation?
     private var pendingInstall: (() -> Void)?
+    private var pendingVersion: String?
     private var pendingTimer: Timer?
 
     init(log: Log) {
@@ -63,18 +89,10 @@ final class Updater: NSObject, ObservableObject {
                                                   userDriverDelegate: self)
         let updater = controller.updater
         automaticallyUpdates = updater.automaticallyDownloadsUpdates
-        canCheckObservation = updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] updater, _ in
-            let canCheck = updater.canCheckForUpdates
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    // Only a real change: see the note on MenuBarExtra in DockFixerApp.
-                    if self?.canCheckForUpdates != canCheck { self?.canCheckForUpdates = canCheck }
-                }
-            }
-        }
 
-        // A build without a feed — a plain `swift build`, a fork that has not
-        // set one up — has nothing to check, and Sparkle would only complain.
+        // A build without a feed — a plain `swift build`, a contributor's
+        // `make app`, a fork that has not set one up — has nothing to check,
+        // and Sparkle would only complain.
         let info = Bundle.main.infoDictionary ?? [:]
         guard let feed = info["SUFeedURL"] as? String, !feed.isEmpty,
               let key = info["SUPublicEDKey"] as? String, !key.isEmpty
@@ -87,6 +105,17 @@ final class Updater: NSObject, ObservableObject {
         } catch {
             log.info("updates: could not start — \(error.localizedDescription)")
             return
+        }
+        // Observed only once started: an updater that never started still
+        // says it can check, and a check would then end in an error window.
+        canCheckObservation = updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] updater, _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    let canCheck = updater.canCheckForUpdates
+                    // Only a real change: see the note on MenuBarExtra in DockFixerApp.
+                    if self?.canCheckForUpdates != canCheck { self?.canCheckForUpdates = canCheck }
+                }
+            }
         }
         log.info("updates: checking \(updater.feedURL?.absoluteString ?? "?") every \(Int(updater.updateCheckInterval / 3600))h"
             + ", install automatically: \(automaticallyUpdates ? "on" : "off")")
@@ -103,12 +132,13 @@ final class Updater: NSObject, ObservableObject {
     }
 
     /// True once, on the first launch after an automatic update restarted the
-    /// app. Clears itself.
+    /// app into the version it was installing. Clears itself either way.
     static func takeRelaunchedAfterUpdate() -> Bool {
         let defaults = UserDefaults.standard
-        guard defaults.bool(forKey: relaunchedAfterUpdateKey) else { return false }
-        defaults.removeObject(forKey: relaunchedAfterUpdateKey)
-        return true
+        guard let target = defaults.string(forKey: relaunchVersionKey) else { return false }
+        defaults.removeObject(forKey: relaunchVersionKey)
+        let running = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        return target == running
     }
 
     /// Any window of the app's own on screen — settings, log, or Sparkle's.
@@ -130,64 +160,107 @@ final class Updater: NSObject, ObservableObject {
             }
             return
         }
-        pendingTimer?.invalidate()
-        pendingTimer = nil
-        pendingInstall = nil
+        let version = pendingVersion
+        cancelPendingInstall()
         log.info("updates: installing and restarting")
-        UserDefaults.standard.set(true, forKey: Self.relaunchedAfterUpdateKey)
+        UserDefaults.standard.set(version, forKey: Self.relaunchVersionKey)
         install()
     }
 
-    nonisolated private static func describe(_ item: SUAppcastItem) -> String {
+    /// "Restart to Update": installs the waiting update with the window still
+    /// open, because someone asked. The next launch shows the window again,
+    /// as it was, so no version is written down for it.
+    func installNow() {
+        guard let install = pendingInstall else { return }
+        cancelPendingInstall()
+        log.info("updates: installing and restarting, as asked")
+        install()
+    }
+
+    private func cancelPendingInstall() {
+        pendingTimer?.invalidate()
+        pendingTimer = nil
+        pendingInstall = nil
+        pendingVersion = nil
+        if updateIsWaiting { updateIsWaiting = false }
+    }
+
+    private static func describe(_ item: SUAppcastItem) -> String {
         "\(item.displayVersionString) (\(item.versionString))"
     }
 }
 
+// Sparkle calls both delegates on the main thread. SPUUpdaterDelegate says so
+// in its declaration (NS_SWIFT_UI_ACTOR); SPUStandardUserDriverDelegate does
+// not, but the standard user driver that calls it is main-actor bound as a
+// whole, so that conformance is `@preconcurrency`: checked at run time
+// instead of a `nonisolated` hop on every method.
 extension Updater: SPUUpdaterDelegate {
 
-    nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
-        let version = Self.describe(item)
-        MainActor.assumeIsolated { log.info("updates: found \(version)") }
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        log.info("updates: found \(Self.describe(item))")
     }
 
-    nonisolated func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
-        MainActor.assumeIsolated { log.debug("updates: up to date") }
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+        log.debug("updates: up to date")
     }
 
-    nonisolated func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+    func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        // An install that was about to restart the app did not happen, so
+        // the next launch is not a restart after an update.
+        UserDefaults.standard.removeObject(forKey: Self.relaunchVersionKey)
         // "No update" arrives here too, as an error, when the check was asked
         // for by hand; it is not a failure.
         let nsError = error as NSError
         guard !(nsError.domain == SUSparkleErrorDomain && nsError.code == Int(SUError.noUpdateError.rawValue)) else { return }
-        let message = error.localizedDescription
-        MainActor.assumeIsolated { log.info("updates: failed — \(message)") }
+        log.info("updates: failed — \(error.localizedDescription)")
     }
 
-    nonisolated func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
-        let version = Self.describe(item)
-        MainActor.assumeIsolated { log.info("updates: installing \(version)") }
+    func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+        log.info("updates: installing \(Self.describe(item))")
     }
 
     /// The update is downloaded, checked and unpacked, and Sparkle offers to
     /// install it at quit. Taking the offer of an immediate install instead is
     /// what makes updates happen for an app that never quits.
-    nonisolated func updater(_ updater: SPUUpdater,
-                             willInstallUpdateOnQuit item: SUAppcastItem,
-                             immediateInstallationBlock: @escaping () -> Void) -> Bool {
-        let version = Self.describe(item)
-        MainActor.assumeIsolated {
-            log.info("updates: \(version) downloaded")
-            pendingInstall = immediateInstallationBlock
-            installWhenIdle()
-        }
+    func updater(_ updater: SPUUpdater,
+                 willInstallUpdateOnQuit item: SUAppcastItem,
+                 immediateInstallationBlock: @escaping () -> Void) -> Bool {
+        log.info("updates: \(Self.describe(item)) downloaded")
+        pendingInstall = immediateInstallationBlock
+        pendingVersion = item.versionString
+        updateIsWaiting = true
+        installWhenIdle()
         return true
     }
 }
 
-extension Updater: SPUStandardUserDriverDelegate {
+extension Updater: @preconcurrency SPUStandardUserDriverDelegate {
 
-    /// The app spends most of its life as a menu-bar accessory. Sparkle asks
-    /// such apps to say they can handle a reminder that does not steal focus;
-    /// it only matters when automatic installs are off and Sparkle has to ask.
-    nonisolated var supportsGentleScheduledUpdateReminders: Bool { true }
+    /// The app spends most of its life as a menu-bar accessory, and Sparkle
+    /// wants such apps to handle a scheduled update themselves: left alone, it
+    /// may put its window up behind whatever is in front, where nobody sees
+    /// it. That only happens with automatic installs off — on, Sparkle shows
+    /// nothing and the update goes through `willInstallUpdateOnQuit`.
+    var supportsGentleScheduledUpdateReminders: Bool { true }
+
+    /// The reminder is not a quiet one: the window Sparkle is about to show
+    /// is brought to the front. At most once a day, and only for someone who
+    /// turned automatic installs off and so asked to be asked.
+    func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool,
+                                                   forUpdate update: SUAppcastItem,
+                                                   state: SPUUserUpdateState) {
+        guard handleShowingUpdate, !state.userInitiated else { return }
+        log.info("updates: \(Self.describe(update)) is available — bringing Sparkle's window to the front")
+        // After Sparkle has put its window up, which it does once this
+        // returns. `checkForUpdates` during a session that is showing an
+        // update brings that window into focus rather than checking again
+        // (SPUStandardUserDriverDelegate.h).
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                NSApp.activate(ignoringOtherApps: true)
+                self?.controller.checkForUpdates(nil)
+            }
+        }
+    }
 }

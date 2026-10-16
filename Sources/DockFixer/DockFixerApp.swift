@@ -139,10 +139,7 @@ private struct MenuContent: View {
         Divider()
 
         Toggle("Launch at Login", isOn: $state.launchAtLogin)
-        Button("Check for Updates…") {
-            // Off the menu's tracking loop first, as with the window below.
-            DispatchQueue.main.async { state.updater.checkForUpdates() }
-        }
+        UpdateMenuItems(updater: state.updater)
 
         Divider()
 
@@ -182,6 +179,28 @@ private struct MenuContent: View {
 
         Button("Quit DockFixer") { state.quit() }
             .keyboardShortcut("q")
+    }
+}
+
+/// "Check for Updates…", and "Restart to Update" while a downloaded update
+/// waits for the window to close. Observes the updater itself: a change
+/// inside it does not redraw a view that only watches `AppState`.
+private struct UpdateMenuItems: View {
+    @ObservedObject var updater: Updater
+
+    var body: some View {
+        if updater.updateIsWaiting {
+            Button("Restart to Update") {
+                // Off the menu's tracking loop first, as with the window below.
+                DispatchQueue.main.async { updater.installNow() }
+            }
+        }
+        Button("Check for Updates…") {
+            DispatchQueue.main.async { updater.checkForUpdates() }
+        }
+        // Disabled rather than silent: a build without a feed never starts
+        // Sparkle, and a check already running cannot start another.
+        .disabled(!updater.canCheckForUpdates)
     }
 }
 

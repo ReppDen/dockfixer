@@ -110,8 +110,10 @@ public enum RecentLog {
     public static let window: TimeInterval = 24 * 60 * 60
 
     /// The current log and the one rotated before it, oldest first. The older
-    /// file is read too because rotation happens at launch, and the day before
-    /// a launch may sit entirely in it.
+    /// file is read too because rotation happens whenever the file passes its
+    /// size limit, and most of the last day may sit in the older one. Read in
+    /// this order the two are one log: the dates written in the older file
+    /// still date the first lines of the newer.
     public static func read(directory: URL, now: Date = Date(), timeZone: TimeZone = .current) -> String {
         let current = directory.appendingPathComponent("dockfixer.log")
         let previous = current.appendingPathExtension("1")

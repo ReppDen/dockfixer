@@ -54,9 +54,7 @@ public final class Log: ObservableObject {
     public let isDebug: Bool
 
     private let bufferLimit = 500
-    private let rotateAtBytes = 5 * 1024 * 1024
-    private let ioQueue = DispatchQueue(label: "com.github.reppden.dockfixer.log", qos: .utility)
-    private var handle: FileHandle?
+    private let file: LogFile
     /// The day of the last line written. Lines carry only the time, and the app
     /// runs for days on end, so a line of its own marks each new day.
     private var lastDay: String
@@ -92,7 +90,9 @@ public final class Log: ObservableObject {
         return raw?.lowercased() == "debug" ? .debug : .info
     }
 
-    public init(directory: URL? = nil, level: LogLevel? = nil) {
+    /// - Parameter rotateAtBytes: the size at which the file is set aside as
+    ///   `dockfixer.log.1` and a new one started. Only a test changes it.
+    public init(directory: URL? = nil, level: LogLevel? = nil, rotateAtBytes: Int = 5 * 1024 * 1024) {
         isDebug = (level ?? Self.configuredLevel()) == .debug
         let dir = directory ?? FileManager.default
             .homeDirectoryForCurrentUser
@@ -101,8 +101,7 @@ public final class Log: ObservableObject {
 
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         lastDay = Self.dayFormat.string(from: Date())
-        rotateIfNeeded()
-        openHandle()
+        file = LogFile(url: fileURL, rotateAtBytes: rotateAtBytes)
 
         // The first thing a report is read for is which build on which
         // system, and the person sending it should not have to be asked.
@@ -195,33 +194,63 @@ public final class Log: ObservableObject {
 
     // MARK: - File
 
-    private func openHandle() {
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: fileURL.path) {
-            fm.createFile(atPath: fileURL.path, contents: nil)
-        }
-        handle = try? FileHandle(forWritingTo: fileURL)
-        _ = try? handle?.seekToEnd()
-    }
-
-    /// Keeps one previous log around and starts fresh once the current one grows
-    /// past the limit.
-    private func rotateIfNeeded() {
-        let fm = FileManager.default
-        guard let size = try? fm.attributesOfItem(atPath: fileURL.path)[.size] as? Int,
-              size > rotateAtBytes
-        else { return }
-
-        let rotated = fileURL.appendingPathExtension("1")
-        try? fm.removeItem(at: rotated)
-        try? fm.moveItem(at: fileURL, to: rotated)
-    }
-
     private func appendToFile(_ text: String) {
-        guard let handle else { return }
-        let data = Data(text.utf8)
-        ioQueue.async {
+        file.append(Data(text.utf8))
+    }
+}
+
+/// The file behind the log, written on a queue of its own so that a pass
+/// logging a line per window never waits on the disk.
+///
+/// Keeps one previous log around and starts afresh once the current one grows
+/// past the limit. That is checked on every write, not only at launch: the
+/// app runs for weeks without restarting, and a debug build writes a line per
+/// window per pass. Counting the bytes written costs nothing, so there is no
+/// reason to check less often. Everything here is touched on `queue` only.
+private final class LogFile: @unchecked Sendable {
+    private let url: URL
+    private let rotateAtBytes: Int
+    private let queue = DispatchQueue(label: "com.github.reppden.dockfixer.log", qos: .utility)
+    private var handle: FileHandle?
+    private var size = 0
+
+    init(url: URL, rotateAtBytes: Int) {
+        self.url = url
+        self.rotateAtBytes = rotateAtBytes
+        queue.sync { open() }
+    }
+
+    func append(_ data: Data) {
+        queue.async { [self] in
+            guard let handle else { return }
             try? handle.write(contentsOf: data)
+            size += data.count
+            if size > rotateAtBytes { rotate() }
         }
+    }
+
+    private func open() {
+        let fm = FileManager.default
+        if let current = try? fm.attributesOfItem(atPath: url.path)[.size] as? Int, current > rotateAtBytes {
+            rotate()
+            return
+        }
+        if !fm.fileExists(atPath: url.path) {
+            fm.createFile(atPath: url.path, contents: nil)
+        }
+        handle = try? FileHandle(forWritingTo: url)
+        size = Int((try? handle?.seekToEnd()) ?? 0)
+    }
+
+    private func rotate() {
+        try? handle?.close()
+        handle = nil
+        let fm = FileManager.default
+        let rotated = url.appendingPathExtension("1")
+        try? fm.removeItem(at: rotated)
+        try? fm.moveItem(at: url, to: rotated)
+        fm.createFile(atPath: url.path, contents: nil)
+        handle = try? FileHandle(forWritingTo: url)
+        size = 0
     }
 }

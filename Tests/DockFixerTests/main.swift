@@ -20,6 +20,7 @@ run.suite("Snap: windows a few points from the Dock are put against it", snapToD
 run.suite("Snap: which side the Dock is on", snapDockSide)
 run.suite("ScreenMap: coordinate conversion", screenMapConversion)
 run.suite("Log: levels per build") { t in MainActor.assumeIsolated { logLevels(t) } }
+run.suite("Log: rotated while the app runs") { t in MainActor.assumeIsolated { logRotation(t) } }
 run.suite("ScreenMap: telling a Dock change from a display change", screenMapLayoutChange)
 run.suite("Usage: why a window was moved", usageReason)
 run.suite("Usage: the journal sums by UTC day", usageJournal)

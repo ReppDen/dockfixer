@@ -54,6 +54,9 @@ turn on the switch next to DockFixer and the window moves on to the settings.
 DockFixer can only fix what happens while it runs, so turn on **Launch at
 login**.
 
+DockFixer sends a small usage count once a day. To opt out, turn off **Send
+usage statistics** in its settings; [Privacy](#privacy) has the details.
+
 ## What it does
 
 - **Moves windows out from under the Dock.** A window that opens there, comes

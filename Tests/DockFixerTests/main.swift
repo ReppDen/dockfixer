@@ -25,5 +25,9 @@ run.suite("Usage: why a window was moved", usageReason)
 run.suite("Usage: the journal sums by UTC day", usageJournal)
 run.suite("Usage: the event as sent", usageEvent)
 run.suite("Usage: sending and retrying") { t in MainActor.assumeIsolated { usageReporter(t) } }
+run.suite("Bug report: the event as sent", bugReportEvent)
+run.suite("Bug report: the last 24 hours of the log", bugReportLogCut)
+run.suite("Bug report: the log kept under the size cap", bugReportLogCap)
+run.suite("Bug report: the body is gzip", bugReportGzip)
 
 run.finish()

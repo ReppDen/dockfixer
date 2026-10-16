@@ -9,6 +9,11 @@ import Foundation
 /// whole of what leaves the machine is built in `UsageReport.event`, and the
 /// README shows it.
 ///
+/// The only other thing that goes to the same project is a bug report, and
+/// only when someone writes one and presses Send: see `BugReport.swift` for
+/// what it carries. It is not governed by the statistics switch, and with
+/// statistics off it carries no install ID either.
+///
 /// Facts are written as they happen, to a small journal of their own, and
 /// the sums are made when it is time to send. The log would have been the
 /// obvious source, but it is written for people — titles cut short, lines
@@ -276,22 +281,56 @@ public final class UsageReporter {
     }
 }
 
-/// The one network call the app makes.
+/// The one place the app talks to PostHog: the daily usage event, and a bug
+/// report when someone sends one (see `BugReport.swift`).
 public enum PostHog {
     public static let endpoint = URL(string: "https://eu.i.posthog.com/capture/")!
 
+    /// What came back: the HTTP status, or why there was none.
+    public enum Delivery: Equatable, Sendable {
+        case status(Int)
+        case error(String)
+
+        public var isAccepted: Bool {
+            if case .status(let code) = self { return (200..<300).contains(code) }
+            return false
+        }
+
+        /// `HTTP 200`, or the system's words for a failure, for the log and the form.
+        public var description: String {
+            switch self {
+            case .status(let code): return "HTTP \(code)"
+            case .error(let why): return why
+            }
+        }
+    }
+
     public static func send(_ data: Data, version: String) async -> UsageReporter.SendResult {
-        var request = URLRequest(url: endpoint, timeoutInterval: 15)
+        let delivery = await deliver(data, version: version)
+        return delivery.isAccepted ? .accepted : .failed(delivery.description)
+    }
+
+    /// Posts one event. `compress` gzips the body: the capture endpoint reads
+    /// `Content-Encoding: gzip` (checked against it: a gzipped body is decoded,
+    /// a broken one is refused with "invalid GZIP data"), which matters for a
+    /// report carrying a log and not at all for a daily event of a few hundred bytes.
+    public static func deliver(_ data: Data, version: String, compress: Bool = false) async -> Delivery {
+        var request = URLRequest(url: endpoint, timeoutInterval: compress ? 60 : 15)
         request.httpMethod = "POST"
-        request.httpBody = data
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("DockFixer/\(version)", forHTTPHeaderField: "User-Agent")
+        if compress, let gzipped = Gzip.compress(data) {
+            request.httpBody = gzipped
+            request.setValue("gzip", forHTTPHeaderField: "Content-Encoding")
+        } else {
+            request.httpBody = data
+        }
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else { return .failed("no HTTP response") }
-            return (200..<300).contains(http.statusCode) ? .accepted : .failed("HTTP \(http.statusCode)")
+            guard let http = response as? HTTPURLResponse else { return .error("no HTTP response") }
+            return .status(http.statusCode)
         } catch {
-            return .failed(error.localizedDescription)
+            return .error(error.localizedDescription)
         }
     }
 }

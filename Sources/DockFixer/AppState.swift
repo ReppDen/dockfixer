@@ -118,6 +118,9 @@ final class AppState: ObservableObject {
     /// Sparkle, behind the "Updates" row and the menu item.
     let updater: Updater
 
+    /// The bug report window's contents, kept while the window is closed.
+    let bugReportForm: BugReportForm
+
     /// The live instance, for the app delegate: it runs before this is built and
     /// has no way to be handed a reference, but it has decisions worth logging.
     private(set) static weak var current: AppState?
@@ -161,6 +164,7 @@ final class AppState: ObservableObject {
     init() {
         log = Log()
         updater = Updater(log: log)
+        bugReportForm = BugReportForm(log: log)
         UserDefaults.standard.register(defaults: [
             Self.moveFromUnderDockKey: true,
             Self.stickToDockKey: true,
@@ -477,10 +481,37 @@ final class AppState: ObservableObject {
 
     // MARK: - Usage statistics
 
+    // MARK: - Bug reports
+
+    /// The switches of the settings page, for a bug report: half the reports
+    /// are about something a switch decides, and asking afterwards takes a day.
+    var settingsForReport: [String: Bool] {
+        [
+            "moveFromUnderDock": moveFromUnderDock,
+            "stickToDock": stickToDock,
+            "ignoreSmallDockChanges": ignoreSmallDockChanges,
+            "fillAcrossDisplays": fillAcrossDisplays,
+            "hideMenuBarIcon": hideMenuBarIcon,
+            "launchAtLogin": launchAtLogin,
+            "installUpdatesAutomatically": updater.automaticallyUpdates,
+            "sendUsageStatistics": sendUsageStatistics,
+        ]
+    }
+
+    /// The usage statistics' install ID, so a report can be put next to that
+    /// installation's days. With statistics off there is none — switching
+    /// them off deletes it — and a report gets a random ID that is not kept:
+    /// sending one report must not leave behind an ID that statistics were
+    /// switched off to be rid of.
+    var distinctIDForReport: String {
+        UserDefaults.standard.string(forKey: Self.usageInstallIDKey) ?? UUID().uuidString.lowercased()
+    }
+
     /// The project key, baked into the bundle by the Makefile. A build without
     /// one — a fork, a plain `swift build` — keeps the switch but sends
-    /// nothing, and says so once.
-    private static var usageKey: String? {
+    /// nothing, and says so once. Bug reports go to the same project, and a
+    /// build without the key sends people to GitHub instead.
+    static var usageKey: String? {
         guard let key = Bundle.main.object(forInfoDictionaryKey: "DockFixerUsageKey") as? String,
               !key.isEmpty, !key.hasPrefix("__")
         else { return nil }

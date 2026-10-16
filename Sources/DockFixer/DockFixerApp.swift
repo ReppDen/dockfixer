@@ -5,6 +5,7 @@ import SwiftUI
 struct DockFixerApp: App {
     static let mainWindowID = "main"
     static let logWindowID = "log"
+    static let bugReportWindowID = "bug-report"
     /// How the settings window is told apart from the log and from AppKit's own
     /// panels. Set here, so it is known rather than guessed.
     static let mainWindowTitle = "DockFixer"
@@ -43,6 +44,12 @@ struct DockFixerApp: App {
                 .environmentObject(state)
         }
         .defaultSize(width: 860, height: 420)
+
+        Window("Report a Bug", id: Self.bugReportWindowID) {
+            BugReportView(form: state.bugReportForm)
+                .environmentObject(state)
+        }
+        .windowResizability(.contentSize)
 
         MenuBarExtra(isInserted: Binding(get: { !state.hideMenuBarIcon },
                                          set: { inserted in
@@ -156,6 +163,18 @@ private struct MenuContent: View {
             DispatchQueue.main.async {
                 delegate.openMainWindow = open
                 delegate.showMainWindow()
+            }
+        }
+
+        Button("Report a Bug…") {
+            // As with the window above: an accessory app cannot own an
+            // ordinary window, and the menu's tracking loop is no place to
+            // change that, so it waits for the menu to close.
+            let open = { openWindow(id: DockFixerApp.bugReportWindowID) }
+            DispatchQueue.main.async {
+                NSApp.setActivationPolicy(.regular)
+                NSApp.activate(ignoringOtherApps: true)
+                open()
             }
         }
 

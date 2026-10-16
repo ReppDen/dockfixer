@@ -61,7 +61,8 @@ enum Links {
     static let buyMeACoffee: URL? = nil
 
     /// A new issue with the facts a report always needs already filled in, so
-    /// nobody has to be asked for them afterwards.
+    /// nobody has to be asked for them afterwards. The bug report form's way
+    /// out, for a build that cannot send and for anyone who prefers GitHub.
     static func bugReport(screens: [ScreenInfo]) -> URL {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
         let os = ProcessInfo.processInfo.operatingSystemVersion
@@ -306,7 +307,11 @@ struct ContentView: View {
                 Label { Text("GitHub") } icon: { Self.githubMark }
             }
             .buttonStyle(SoftButtonStyle())
-            link("Report a Bug", "ladybug", Links.bugReport(screens: state.screens))
+            // A form of the app's own, not GitHub: see BugReportView.
+            Button { openWindow(id: DockFixerApp.bugReportWindowID) } label: {
+                Label("Report a Bug", systemImage: "ladybug")
+            }
+            .buttonStyle(SoftButtonStyle())
             link("Ask a Question", "questionmark.circle", Links.discussions)
             if let coffee = Links.buyMeACoffee {
                 link("Buy Me a Coffee", "cup.and.saucer", coffee)
@@ -333,7 +338,7 @@ struct ContentView: View {
     /// SF Symbols has no brand marks, so GitHub's own comes from Octicons (MIT),
     /// bundled as a PDF. A template image, so it takes the
     /// label's colour in light and dark alike.
-    private static var githubMark: some View {
+    static var githubMark: some View {
         let image = Bundle.main.image(forResource: "github-mark") ?? NSImage()
         image.isTemplate = true
         return Image(nsImage: image)

@@ -119,6 +119,12 @@ public final class UsageJournal: @unchecked Sendable {
         return sums.values.sorted { $0.day < $1.day }
     }
 
+    /// The sums of every day in the journal, today included, oldest first:
+    /// what the local history is started from on its first launch.
+    public func allDays() -> [UsageDay] {
+        days(before: "9999-12-31")
+    }
+
     /// Drops a day that has been sent. Rewrites the file: it is small, and
     /// the lines of the other days are kept exactly as they were.
     public func prune(day: String) {

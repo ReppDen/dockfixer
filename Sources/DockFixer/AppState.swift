@@ -74,7 +74,9 @@ final class AppState: ObservableObject {
     /// One line a day — the random install ID, the version, the date and
     /// three counts — so that the project knows it is used and by how much.
     /// Off, the journal and the install ID are deleted: there is nothing
-    /// left that could be sent later. See `Usage.swift` for all of it.
+    /// left that could be sent later. See `Usage.swift` for all of it. The
+    /// local history (`UsageHistory`) is not touched: it never leaves the
+    /// machine, so there is nothing about it the switch has to stop.
     @Published var sendUsageStatistics: Bool {
         didSet {
             guard oldValue != sendUsageStatistics else { return }
@@ -140,6 +142,10 @@ final class AppState: ObservableObject {
     private var pollTimer: Timer?
     private var isSyncingLoginItem = false
     private var usageJournal: UsageJournal?
+    /// Counted whatever the statistics switch says, and kept for ever: the
+    /// user's own record of what the app did. See `UsageHistory.swift`.
+    let usageHistory: UsageHistory
+    private var historyObserver: NSObjectProtocol?
     private var usage: UsageReporter?
     private var usageTimer: Timer?
     private var usageObservers: [NSObjectProtocol] = []
@@ -165,6 +171,12 @@ final class AppState: ObservableObject {
         log = Log()
         updater = Updater(log: log)
         bugReportForm = BugReportForm(log: log)
+        usageHistory = UsageHistory(url: Self.usageDirectory.appendingPathComponent("usage-history.json")) {
+            // Read only when there is no history file yet. The journal is
+            // opened just to be read: it exists, if at all, from a time the
+            // statistics were on, and reading it changes nothing.
+            UsageJournal(url: Self.usageDirectory.appendingPathComponent("usage.jsonl")).allDays()
+        }
         UserDefaults.standard.register(defaults: [
             Self.moveFromUnderDockKey: true,
             Self.stickToDockKey: true,
@@ -213,6 +225,19 @@ final class AppState: ObservableObject {
             + " (skipping \(Int(dockNoise))pt or less: \(onOff(ignoreSmallDockChanges)))"
             + ", fill the space on another display: \(onOff(fillAcrossDisplays))"
             + ", usage statistics: \(onOff(sendUsageStatistics))")
+        switch usageHistory.origin {
+        case .loaded(let days): log.info("usage history: \(days) day\(days == 1 ? "" : "s")")
+        case .seeded(let days): log.info("usage history: started, \(days) day\(days == 1 ? "" : "s") taken from the journal")
+        case .unreadable(let aside): log.info("usage history: could not be read, moved to \(aside.lastPathComponent)")
+        case .newer(let version): log.info("usage history: written by a newer DockFixer (version \(version)), left as it is")
+        }
+        // The counts of the last couple of seconds are still in memory when
+        // the app quits; this is the moment to write them.
+        historyObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+        ) { [usageHistory] _ in
+            usageHistory.save()
+        }
         if sendUsageStatistics {
             startUsage()
         }
@@ -430,6 +455,7 @@ final class AppState: ObservableObject {
         for outcome in summary.outcomes {
             if let kind = outcome.kind {
                 usageJournal?.record(kind)
+                usageHistory.record(kind)
             }
             if outcome.logOncePerSession {
                 let key = "\(outcome.app)|\(outcome.detail)"
@@ -516,6 +542,12 @@ final class AppState: ObservableObject {
         return key
     }
 
+    /// Where the journal and the local history live.
+    private static var usageDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/DockFixer", isDirectory: true)
+    }
+
     private func startUsage() {
         guard usage == nil else { return }
         guard let key = Self.usageKey else {
@@ -530,9 +562,7 @@ final class AppState: ObservableObject {
             UserDefaults.standard.set(installID, forKey: Self.usageInstallIDKey)
         }
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-        let journal = UsageJournal(url: FileManager.default
-            .homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/DockFixer/usage.jsonl"))
+        let journal = UsageJournal(url: Self.usageDirectory.appendingPathComponent("usage.jsonl"))
         usageJournal = journal
         usage = UsageReporter(journal: journal, installID: installID, version: version, apiKey: key,
                               log: log) { data in

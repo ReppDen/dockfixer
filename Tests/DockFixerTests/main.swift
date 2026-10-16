@@ -27,6 +27,10 @@ run.suite("Usage: the journal sums by UTC day", usageJournal)
 run.suite("Usage: the event as sent", usageEvent)
 run.suite("Usage: sending and retrying") { t in MainActor.assumeIsolated { usageReporter(t) } }
 run.suite("Usage: at most a month of unsent days") { t in MainActor.assumeIsolated { usageReporterCap(t) } }
+run.suite("Usage history: counting by UTC day and reading back", usageHistoryRecording)
+run.suite("Usage history: a partial, broken or newer file", usageHistoryTolerance)
+run.suite("Usage history: started from the journal, outlives it", usageHistorySeeding)
+run.suite("Usage history: seconds saved", usageSavings)
 run.suite("Bug report: the event as sent", bugReportEvent)
 run.suite("Bug report: the last 24 hours of the log", bugReportLogCut)
 run.suite("Bug report: the log kept under the size cap", bugReportLogCap)

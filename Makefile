@@ -2,15 +2,16 @@ APP_NAME  := DockFixer
 BUNDLE_ID := com.github.reppden.dockfixer
 VERSION   := 0.1.0
 
-# "-" means an ad-hoc signature, which is all a release build needs. macOS ties
-# the Accessibility grant to the code hash of an ad-hoc signed app, so every
-# rebuild costs another trip through System Settings. During development, point
-# this at a self-signed code-signing certificate to get a stable identity and
-# keep the grant across rebuilds:
+# "-" means an ad-hoc signature: enough for CI to check that the bundle builds.
+# macOS ties the Accessibility grant to the code hash of an ad-hoc signed app,
+# so every rebuild costs another trip through System Settings. A self-signed
+# certificate gives a stable identity instead and the grant survives rebuilds:
+# "make dev" signs with a local one (Scripts/dev-cert.sh), and the release
+# workflow signs with the project's release certificate.
 #
 #   make app SIGN_IDENTITY="DockFixer Dev"
 #
-# See the Development section of the README for creating that certificate.
+# See CONTRIBUTING.md for why this matters.
 SIGN_IDENTITY ?= -
 
 # Baked into the bundle. "make dev" overrides it with "debug" so a local build
@@ -47,7 +48,7 @@ DEV_IDENTITY := DockFixer Dev
 # Empty: a development build does not update itself.
 DEV_FEED_URL ?=
 
-.PHONY: all app icon readme-icon run test install uninstall dev dev-cert reset-tcc zip clean help
+.PHONY: all app icon readme-icon readme-hero run test install uninstall dev dev-cert reset-tcc zip clean help
 
 all: app
 
@@ -66,6 +67,10 @@ icon: $(ICNS)
 readme-icon: $(ICNS)
 	sips -z 512 512 "$(BUILD_DIR)/icon-1024.png" --out docs/icon.png >/dev/null
 	@echo "wrote docs/icon.png"
+
+## readme-hero: redraw docs/hero.png, the before/after picture at the top of the README
+readme-hero:
+	swift Scripts/make-hero.swift docs/hero.png
 
 $(ICNS): Scripts/make-icon.swift
 	mkdir -p "$(ICONSET)"

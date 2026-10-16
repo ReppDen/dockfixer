@@ -10,8 +10,8 @@
 # designated requirement, and the grant survives rebuilds.
 #
 # The certificate lives in its own keychain with a known password so this runs
-# without prompting. It is only used for local builds; releases stay ad-hoc
-# signed.
+# without prompting. It is only used for local builds; releases are signed in
+# CI with the project's release certificate, kept in the repository's secrets.
 set -euo pipefail
 
 CN="${DEV_CERT_NAME:-DockFixer Dev}"

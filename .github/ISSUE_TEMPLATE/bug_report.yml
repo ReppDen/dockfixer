@@ -1,0 +1,40 @@
+name: Bug report
+description: A window was not moved, was moved wrongly, or the app misbehaves.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The easiest way is **Report a Bug** in DockFixer's window: it attaches the log for you.
+        This form is for when you prefer GitHub.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Which app and window, where the Dock was, and what you did just before (plugged in a display, moved the Dock, opened a window…).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        The log is at `~/Library/Logs/DockFixer/dockfixer.log`. In the app, **Show Log** has **Copy Log** and **Reveal in Finder**.
+        The lines around the problem are enough. They include the names and titles of windows DockFixer moved, so remove anything private.
+      render: text
+  - type: input
+    id: versions
+    attributes:
+      label: DockFixer and macOS versions
+      placeholder: DockFixer 0.1.0, macOS 15.1
+    validations:
+      required: true
+  - type: input
+    id: displays
+    attributes:
+      label: Displays and Dock position
+      placeholder: MacBook Pro built-in + one external display, Dock on the left

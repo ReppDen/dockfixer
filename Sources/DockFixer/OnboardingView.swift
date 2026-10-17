@@ -12,10 +12,10 @@ import SwiftUI
 ///    moment the switch in System Settings is turned on. It comes back if the
 ///    grant is ever revoked, for the same reason — and that is the only one
 ///    of the three that can come back.
-/// 2. Notifications. The quiet kind is taken silently as it opens; its
-///    button leads to System Settings, where notifications are turned on
-///    fully. The system's own prompt is never shown: it is easy to swipe
-///    away, and a swipe counts as "no" for good.
+/// 2. Notifications. The quiet kind is taken silently as it opens, and the
+///    system's prompt comes up straight after it. The step waits for an
+///    answer there, "Not Now", or a return from System Settings, where its
+///    button leads.
 /// 3. "We're ready" for a second and a half, then the Stats tab.
 ///
 /// All three share one layout and one height, so the window does not jump

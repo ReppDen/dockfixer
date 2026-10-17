@@ -84,16 +84,18 @@ func notificationAccessReach(_ t: TestRun) {
 }
 
 /// The onboarding's notifications step, event by event, as agreed with the
-/// user: the quiet kind silently, no system prompt; wait for a decision; the
-/// Allow button goes to System Settings and stays.
+/// user: the quiet kind silently, then the system's prompt; wait for a
+/// decision; the Allow button goes to System Settings and stays.
 func notificationAccessStep(_ t: TestRun) {
     typealias S = NotificationAccess.Step
 
-    t.expect(S.actions(for: .opened(.notAsked)) == [.takeQuiet], "never asked: the quiet kind, silently")
-    t.expect(S.actions(for: .opened(.provisional)).isEmpty, "already quiet: nothing to take, wait")
+    t.expect(S.actions(for: .opened(.notAsked)) == [.takeQuiet], "never asked: the quiet kind first")
+    t.expect(S.actions(for: .quietTaken) == [.showPrompt], "then the system's prompt")
+    t.expect(S.actions(for: .opened(.provisional)) == [.showPrompt], "already quiet: straight to the prompt")
     t.expect(S.actions(for: .opened(.allowed)) == [.finish], "already allowed: skipped")
     t.expect(S.actions(for: .opened(.denied)) == [.finish], "already refused: skipped")
 
+    t.expect(S.actions(for: .promptAnswered) == [.finish], "Allow or Don't Allow in the prompt: on")
     t.expect(S.actions(for: .notNowPressed) == [.finish], "Not Now: on")
 
     t.expect(S.actions(for: .allowPressed) == [.openSettings],
@@ -101,7 +103,7 @@ func notificationAccessStep(_ t: TestRun) {
 
     t.expect(S.actions(for: .permissionRead(.allowed)) == [.finish], "back from System Settings allowed: on")
     t.expect(S.actions(for: .permissionRead(.denied)).isEmpty,
-             "denied: wait — the Allow button leads to System Settings")
+             "a denied read may be the prompt still up: wait")
     t.expect(S.actions(for: .permissionRead(.provisional)).isEmpty, "quiet only: wait")
     t.expect(S.actions(for: .permissionRead(.notAsked)).isEmpty, "not asked: wait")
 }

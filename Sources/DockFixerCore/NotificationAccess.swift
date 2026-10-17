@@ -8,12 +8,13 @@ import Foundation
 /// pure, and tested. The app side (`MilestoneNotifier`, `AppState`) only
 /// asks these questions and talks to the system.
 ///
-/// The rule throughout: the app never shows the system's own prompt. The most
-/// it asks for is the quiet, provisional kind, which shows nothing: its
-/// notifications go to Notification Center only, with Keep and Turn Off
-/// buttons on them, so the user decides with one in front of them. The full
-/// kind is turned on in System Settings, where the "Allow Notifications"
-/// buttons — on the onboarding step and in the Permissions row — lead.
+/// The rule throughout: the system's own prompt is shown in one place only,
+/// the onboarding's notifications step, right after the quiet kind is
+/// taken. Everywhere else the most the app asks for is the quiet,
+/// provisional kind, which shows nothing: its notifications go to
+/// Notification Center only, with Keep and Turn Off buttons on them. The
+/// "Allow Notifications" buttons — on the step and in the Permissions row —
+/// lead to DockFixer's page in System Settings.
 public enum NotificationAccess {
 
     /// The system's answer about DockFixer. Its own copy of
@@ -42,11 +43,11 @@ public enum NotificationAccess {
         permission == .notAsked || permission == .provisional
     }
 
-    /// Whether the notifications step takes the quiet kind when it opens,
-    /// silently. Taken then, it is in place whatever the user does on the
-    /// step — "Not Now" has nothing left to ask for. Provisional can only be
-    /// had while the app was never asked, so for any other answer it is
-    /// skipped.
+    /// Whether the notifications step takes the quiet kind first, silently,
+    /// before the system's prompt comes up. Taken first, it is in place
+    /// whatever the user then does on the step — "Not Now" has nothing left
+    /// to ask for. Provisional can only be had while the app was never
+    /// asked, so for any other answer it is skipped.
     public static func takesQuietFirst(_ permission: Permission) -> Bool {
         permission == .notAsked
     }
@@ -57,28 +58,36 @@ public enum NotificationAccess {
     ///
     /// - It opens right after the Accessibility grant. If notifications
     ///   were already allowed or refused, it is skipped. Otherwise the quiet
-    ///   kind is taken, silently. The system's own prompt is never shown:
-    ///   the step's button does its job better (below).
-    /// - It then waits. It moves on only when the user decides: "Not Now",
-    ///   or coming back from System Settings with notifications allowed.
+    ///   kind is taken first, silently, and the system's prompt comes up
+    ///   straight after it.
+    /// - It then waits. It moves on only when the user decides: an answer
+    ///   in the prompt (Allow or Don't Allow), "Not Now", or coming back
+    ///   from System Settings with notifications allowed.
     /// - "Allow Notifications" opens DockFixer's page in System Settings →
     ///   Notifications and leaves the step where it is. On macOS 26.5,
-    ///   opening that page for an app that has the quiet kind turns
-    ///   notifications fully on by itself, with nothing to press there —
-    ///   seen, not documented; see private_docs/product-decisions.md.
+    ///   opening that page while the quiet kind is held and the prompt is
+    ///   up turns notifications fully on by itself, banners included;
+    ///   without the prompt it does not. Seen, not documented; see
+    ///   private_docs/product-decisions.md.
     public enum Step {
         public enum Event: Equatable, Sendable {
             /// The step is on screen and the permission is known.
             case opened(Permission)
+            /// The answer to the silent request for the quiet kind.
+            case quietTaken
+            /// The user answered the system's prompt, either way.
+            case promptAnswered
             case notNowPressed
             case allowPressed
             /// The permission read again, as when the app comes back to the
-            /// front from System Settings. Only an allow moves the step on.
+            /// front from System Settings. While the prompt is up macOS
+            /// reports a refusal, so only an allow moves the step on.
             case permissionRead(Permission)
         }
 
         public enum Action: Equatable, Sendable {
             case takeQuiet
+            case showPrompt
             case openSettings
             /// On to "We're ready".
             case finish
@@ -88,8 +97,10 @@ public enum NotificationAccess {
             switch event {
             case .opened(let permission):
                 if !onboardingAsks(permission) { return [.finish] }
-                return takesQuietFirst(permission) ? [.takeQuiet] : []
-            case .notNowPressed:
+                return takesQuietFirst(permission) ? [.takeQuiet] : [.showPrompt]
+            case .quietTaken:
+                return [.showPrompt]
+            case .promptAnswered, .notNowPressed:
                 return [.finish]
             case .allowPressed:
                 return [.openSettings]

@@ -421,9 +421,9 @@ final class AppState: ObservableObject {
 
     /// "Allow Notifications", on the step and in the Permissions row: both
     /// open DockFixer's page in System Settings → Notifications, where the
-    /// switch is. The app never shows the system's own prompt (see
-    /// `NotificationAccess`). On the step, the step stays put and moves on by
-    /// itself when the user comes back with notifications allowed.
+    /// switch is. The step has already shown the system's prompt, which the
+    /// system shows once ever. On the step, the step stays put and moves on
+    /// by itself when the user comes back with notifications allowed.
     func allowNotifications() {
         if onboardingStep == .notifications {
             stepEvent(.allowPressed)
@@ -461,6 +461,13 @@ final class AppState: ObservableObject {
                 log.info("onboarding: taking quiet notifications")
                 MilestoneNotifier.shared.requestAuthorization(provisional: true) { [weak self] _ in
                     self?.refreshNotificationStatus()
+                    self?.stepEvent(.quietTaken)
+                }
+            case .showPrompt:
+                log.info("onboarding: showing the notifications prompt")
+                MilestoneNotifier.shared.requestAuthorization(provisional: false) { [weak self] _ in
+                    self?.refreshNotificationStatus()
+                    self?.stepEvent(.promptAnswered)
                 }
             case .openSettings:
                 openNotificationSettings()

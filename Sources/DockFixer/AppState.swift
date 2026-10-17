@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import DockFixerCore
 import SwiftUI
+import UserNotifications
 
 /// Glue between the window and the scanner.
 @MainActor
@@ -144,6 +145,26 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// What the system says about DockFixer's notifications; nil until it has
+    /// answered the first time. Read again whenever the app comes to the
+    /// front, because it is changed in System Settings, outside the app, and
+    /// the Settings tab asks for what is still missing.
+    @Published private(set) var notificationPermission: NotificationAccess.Permission?
+
+    /// The first-run screens that follow the Accessibility one. Accessibility
+    /// itself is not a step here: it is shown whenever the grant is missing,
+    /// on the first run and any time it is revoked later, so it is decided by
+    /// `isTrusted` alone.
+    @Published private(set) var onboardingStep: OnboardingStep
+
+    enum OnboardingStep {
+        /// Why notifications are worth allowing, with the button that asks.
+        case notifications
+        /// "We're ready" for a moment, then the Stats tab.
+        case ready
+        case finished
+    }
+
     /// Accessibility access can be granted or revoked outside the app, so this
     /// is polled rather than read once.
     @Published private(set) var isTrusted: Bool
@@ -173,6 +194,12 @@ final class AppState: ObservableObject {
     /// Showing the window itself is the app delegate's job.
     func showStatistics() {
         if page != .stats { page = .stats }
+    }
+
+    /// Switches the main window to the Settings tab, for ⌘, and the
+    /// "Settings…" menu item. The same rule as `showStatistics`.
+    func showSettings() {
+        if page != .settings { page = .settings }
     }
 
     enum Page: String, CaseIterable, Identifiable {
@@ -209,6 +236,12 @@ final class AppState: ObservableObject {
     private static let sendUsageStatisticsKey = "sendUsageStatistics"
     private static let appearanceKey = "appearance"
     private static let usageInstallIDKey = "usageInstallID"
+    /// Set once the first-run screens have been gone through, so they are
+    /// not shown again. The Accessibility screen does not look at it.
+    private static let onboardingFinishedKey = "onboardingFinished"
+    /// Set once Launch at login has been turned on by the app itself, so a
+    /// user who turns it off later is never overruled.
+    private static let launchAtLoginTurnedOnKey = "launchAtLoginTurnedOnOnce"
     /// How long to wait before repeating a pass that could not read the windows.
     private static let retryDelays: [TimeInterval] = [0.75, 1.5, 3]
     private let scanner = WindowScanner()
@@ -221,6 +254,8 @@ final class AppState: ObservableObject {
     /// user's own record of what the app did. See `UsageHistory.swift`.
     let usageHistory: UsageHistory
     private var historyObserver: NSObjectProtocol?
+    private var activationObserver: NSObjectProtocol?
+    private var askedOnNotificationsStep = false
     private var usage: UsageReporter?
     private var usageTimer: Timer?
     private var usageObservers: [NSObjectProtocol] = []
@@ -275,6 +310,7 @@ final class AppState: ObservableObject {
         appearance.apply()
         launchAtLogin = LoginItem.isEnabled
         isTrusted = WindowScanner.isTrusted
+        onboardingStep = UserDefaults.standard.bool(forKey: Self.onboardingFinishedKey) ? .finished : .notifications
 
         watcher = DisplayWatcher(log: log) { [weak self] reason, previousScreens in
             guard let self else { return }
@@ -336,7 +372,18 @@ final class AppState: ObservableObject {
             Task { await usage.sendNotification(action, hours: hours) }
         }
 
-        if !isTrusted {
+        refreshNotificationStatus()
+        // Coming back from System Settings is the moment notifications may
+        // have been turned on or off there.
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshNotificationStatus() }
+        }
+
+        if isTrusted {
+            turnOnLaunchAtLoginOnce()
+        } else {
             log.info("Accessibility access not granted yet; approve DockFixer in the system prompt, or press Grant")
             // Ask straight away rather than at the first button press: the grant
             // has to be in place before anything useful can happen.
@@ -368,6 +415,141 @@ final class AppState: ObservableObject {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    // MARK: - Onboarding and notifications
+
+    /// "Allow Notifications", on the step and in the Permissions row: both
+    /// open DockFixer's page in System Settings → Notifications, where the
+    /// switch is. The app never shows the system's own prompt (see
+    /// `NotificationAccess`). On the step, the step stays put and moves on by
+    /// itself when the user comes back with notifications allowed.
+    func allowNotifications() {
+        if onboardingStep == .notifications {
+            stepEvent(.allowPressed)
+        } else {
+            openNotificationSettings()
+        }
+    }
+
+    /// The notifications step is on screen, right after the Accessibility
+    /// grant. Once per launch, and not before the system has said where
+    /// things stand.
+    func notificationsStepAppeared() {
+        guard !askedOnNotificationsStep, onboardingStep == .notifications,
+              let permission = notificationPermission else { return }
+        askedOnNotificationsStep = true
+        log.info("onboarding: notifications step opened, permission \(permission)")
+        stepEvent(.opened(permission))
+    }
+
+    /// "Not Now" on the notifications step. The quiet kind was taken when
+    /// the step opened, so there is nothing to ask.
+    func skipNotifications() {
+        log.info("onboarding: Not Now")
+        stepEvent(.notNowPressed)
+    }
+
+    /// One event on the notifications step, and what it leads to. What
+    /// leads to what is decided, and tested, in `NotificationAccess.Step`;
+    /// this only carries it out.
+    private func stepEvent(_ event: NotificationAccess.Step.Event) {
+        guard onboardingStep == .notifications else { return }
+        for action in NotificationAccess.Step.actions(for: event) {
+            switch action {
+            case .takeQuiet:
+                log.info("onboarding: taking quiet notifications")
+                MilestoneNotifier.shared.requestAuthorization(provisional: true) { [weak self] _ in
+                    self?.refreshNotificationStatus()
+                }
+            case .openSettings:
+                openNotificationSettings()
+            case .finish:
+                onboardingReady()
+            }
+        }
+    }
+
+    /// System Settings → Notifications, on DockFixer's own page rather than
+    /// the list of every app: the switch that turns notifications on fully,
+    /// or back on after a refusal.
+    func openNotificationSettings() {
+        let id = Bundle.main.bundleIdentifier ?? ""
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") {
+            log.info("notifications: opening System Settings → Notifications → DockFixer")
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// The red dot on the Settings tab; see `NotificationAccess.wantsAttention`.
+    var notificationsWantAttention: Bool {
+        notificationPermission.map(NotificationAccess.wantsAttention) ?? false
+    }
+
+    /// The end of the "We're ready" screen: the tabs, on the Stats one.
+    func finishOnboarding() {
+        guard onboardingStep == .ready else { return }
+        onboardingStep = .finished
+        showStatistics()
+    }
+
+    /// Recorded as finished here, when the last screen appears, rather than
+    /// when it goes: quitting during those two seconds should not bring the
+    /// notifications step back.
+    private func onboardingReady() {
+        guard onboardingStep == .notifications else { return }
+        UserDefaults.standard.set(true, forKey: Self.onboardingFinishedKey)
+        log.info("onboarding: finished")
+        onboardingStep = .ready
+    }
+
+    private func refreshNotificationStatus() {
+        readNotificationPermission { [weak self] permission in
+            guard let self else { return }
+            if notificationPermission != permission {
+                notificationPermission = permission
+                log.info("notifications: permission \(permission)")
+            }
+            // Back from System Settings, perhaps with the switch turned on.
+            if askedOnNotificationsStep { stepEvent(.permissionRead(permission)) }
+        }
+    }
+
+    /// What the system says right now, on the main actor.
+    private func readNotificationPermission(_ then: @escaping @MainActor (NotificationAccess.Permission) -> Void) {
+        guard MilestoneNotifier.canUseNotifications else { return }
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let permission = MilestoneNotifier.permission(settings.authorizationStatus)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { then(permission) }
+            }
+        }
+    }
+
+    /// Turns Launch at login on the first time the app has the grant. The
+    /// app is no use unless it is running when a display goes away, and a
+    /// switch left for the user to find is a switch most never find. Once
+    /// only: whatever the user does with the switch afterwards stands. macOS
+    /// says "Login item added" in a notification of its own, which is the
+    /// user being told, not something to hide.
+    private func turnOnLaunchAtLoginOnce() {
+        guard !UserDefaults.standard.bool(forKey: Self.launchAtLoginTurnedOnKey) else { return }
+        if !launchAtLogin {
+            do {
+                try LoginItem.set(true)
+            } catch {
+                // Most often an app not in /Applications. Not marked done,
+                // so a later launch from the right place tries again.
+                log.add(level: .fail, app: "DockFixer", title: "",
+                        detail: "could not turn on launch at login: \(error.localizedDescription)")
+                return
+            }
+            isSyncingLoginItem = true
+            launchAtLogin = LoginItem.isEnabled
+            isSyncingLoginItem = false
+            log.info("launch at login: turned on at first launch — \(LoginItem.statusDescription)")
+        }
+        UserDefaults.standard.set(true, forKey: Self.launchAtLoginTurnedOnKey)
     }
 
     func clearLog() {
@@ -572,6 +754,7 @@ final class AppState: ObservableObject {
         if trusted != isTrusted {
             isTrusted = trusted
             log.info("Accessibility access \(trusted ? "granted" : "revoked")")
+            if trusted { turnOnLaunchAtLoginOnce() }
             // Observers cannot be registered without the grant, so the ones
             // attempted before it was given all failed.
             if trusted, moveFromUnderDock {

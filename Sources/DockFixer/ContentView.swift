@@ -131,9 +131,9 @@ enum Links {
     }
 }
 
-/// The main window: a line saying which app this is, a row of tabs, as in
-/// a Mac app's settings window, the page of the chosen tab, and a foot that
-/// is the same on every tab.
+/// The main window: a top row with which app this is on the left and the
+/// tabs on the right, as in a Mac app's settings window, the page of the
+/// chosen tab, and a foot that is the same on every tab.
 ///
 /// The tabs are drawn here rather than left to SwiftUI. A `TabView` gives the
 /// toolbar of icons over titles only inside a `Settings` scene; in a `Window`
@@ -159,12 +159,11 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if state.isTrusted {
+            if state.isTrusted, state.onboardingStep == .finished {
                 VStack(spacing: 0) {
-                    header
+                    top
                         .padding(.horizontal, 20)
-                        .padding(.top, 10)
-                    tabBar
+                        .padding(.vertical, 8)
                     Divider()
                     page
                         .padding(20)
@@ -180,6 +179,7 @@ struct ContentView: View {
         }
         .frame(width: Self.width)
         .animation(.easeInOut(duration: 0.2), value: state.isTrusted)
+        .animation(.easeInOut(duration: 0.2), value: state.onboardingStep)
         .onChange(of: state.isTrusted) { _, trusted in
             // The switch was turned on in System Settings, which is in front.
             // Coming forward shows that it worked, and that there is a next step.
@@ -208,16 +208,19 @@ struct ContentView: View {
     private var tabBar: some View {
         HStack(spacing: 2) {
             ForEach(Self.tabs) { tab in
-                TabButton(title: tab.title, icon: tab.icon, selected: state.page == tab.page) {
+                // The dot asks for notifications the user has not allowed
+                // yet: the row that does it is on the Settings tab.
+                TabButton(title: tab.title, icon: tab.icon, selected: state.page == tab.page,
+                          badge: tab.page == .settings && state.notificationsWantAttention) {
                     // Only a real change: every write to a @Published
                     // property redraws the whole window.
                     if state.page != tab.page { state.page = tab.page }
                 }
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 6)
-        .padding(.bottom, 8)
+        // Never squeezed: a tab whose title is cut reads as broken. The
+        // header beside it is measured to leave room for all four.
+        .fixedSize()
     }
 
     @ViewBuilder
@@ -322,6 +325,11 @@ struct ContentView: View {
 
     private var settings: some View {
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 16) {
+            // Gone once everything is allowed: there is nothing to press.
+            if let permission = state.notificationPermission,
+               NotificationAccess.offer(permission) != .nothing {
+                Self.row("Permissions") { permissions(permission) }
+            }
             Self.row("Startup") {
                 Toggle("Launch at login", isOn: $state.launchAtLogin)
             }
@@ -340,33 +348,107 @@ struct ContentView: View {
                             title: "Send usage statistics")
             }
             Self.row("Help") { help }
+            // Last, under Help: the version is what a bug report needs
+            // first, and selectable so it can be copied into one.
+            Self.row("Version") {
+                Text(Self.version)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    /// Both permissions the app uses, each with how it stands, and the
+    /// button for the one that is missing. Accessibility is always granted
+    /// here — without it the window shows the onboarding instead of the
+    /// tabs. After a refusal the system will not ask again, so the button
+    /// leads to System Settings.
+    private func permissions(_ permission: NotificationAccess.Permission) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            permissionLine("Accessibility", allowed: true, status: "Allowed")
+            permissionLine("Notifications", allowed: permission == .allowed,
+                           status: Self.describe(permission))
+            switch NotificationAccess.offer(permission) {
+            case .nothing:
+                EmptyView()
+            case .allow:
+                Button { state.allowNotifications() } label: {
+                    Label("Allow Notifications", systemImage: "bell.badge")
+                }
+                .buttonStyle(SoftButtonStyle(emphasised: true))
+            case .openSystemSettings:
+                Button { state.openNotificationSettings() } label: {
+                    Label("Notification Settings…", systemImage: "bell")
+                }
+                .buttonStyle(SoftButtonStyle())
+            }
+        }
+    }
+
+    private func permissionLine(_ name: String, allowed: Bool, status: String) -> some View {
+        HStack(spacing: 6) {
+            Text(name)
+                .frame(width: 96, alignment: .leading)
+            Image(systemName: allowed ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                .foregroundStyle(allowed ? Color.green : Color.orange)
+            Text(status)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private static func describe(_ permission: NotificationAccess.Permission) -> String {
+        switch permission {
+        case .allowed: return "Allowed"
+        case .provisional: return "Only in Notification Center, no banners"
+        case .notAsked: return "Not allowed yet"
+        case .denied: return "Turned off"
         }
     }
 
     // MARK: - Header
 
-    /// Who the app is, on one quiet line over the tabs, where an About box
-    /// would be in another app: the version is what a bug report needs
-    /// first, and it is the same on every tab.
+    /// The app on the left and the tabs pinned to the right, in one row,
+    /// centred on each other. One row rather than two keeps the window short,
+    /// and the tabs at the trailing edge stay where they are when a release
+    /// has no Debug tab.
+    private var top: some View {
+        // No spacing of its own: an HStack puts it on both sides of the
+        // spacer too, and the row has none to spare with four tabs.
+        HStack(alignment: .center, spacing: 0) {
+            header
+            Spacer(minLength: 8)
+            tabBar
+        }
+    }
+
+    /// Who the app is, where an About box would be in another app: the icon
+    /// at the height of a tab's icon and title together, the name, and what
+    /// the app does under it.
     ///
-    /// Small and on a line of its own, left-aligned while the tabs are
-    /// centred: an icon as large as a tab's, or in the same row, would read
-    /// as one more tab.
+    /// As large as a tab, so the row is balanced, and still not read as one
+    /// more tab: it sits at the other end of the row, with words beside it
+    /// rather than under it, and has no fill or hover. The version moved to
+    /// the Settings tab; on this line it was one more thing to read every
+    /// time the window opened.
+    ///
+    /// 40 points, a little more than a tab's 38, because an app icon's
+    /// picture has a transparent margin round it and a tab's symbol does not.
+    ///
+    /// The slogan stays on one line: at 12 points it is about 231 points
+    /// wide, and with the icon this side needs about 279 of the 560 between
+    /// the margins, while four tabs need 270. At 13 points it would not fit
+    /// beside the Debug tab of a development build.
     private var header: some View {
-        HStack(alignment: .center, spacing: 7) {
-            AppIconView(size: 20)
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+        HStack(alignment: .center, spacing: 8) {
+            AppIconView(size: 40)
+            VStack(alignment: .leading, spacing: 1) {
                 Text("DockFixer")
-                    .font(.system(size: 13, weight: .semibold))
-                Text(Self.version)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 17, weight: .semibold))
                 Text("Keeps your windows away from the Dock")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 6)
             }
-            Spacer(minLength: 0)
+            .fixedSize()
         }
     }
 
@@ -482,6 +564,8 @@ private struct TabButton: View {
     let title: String
     let icon: String
     let selected: Bool
+    /// A red dot on the icon: something on that tab wants an answer.
+    var badge = false
     let action: () -> Void
 
     @State private var hovering = false
@@ -493,6 +577,14 @@ private struct TabButton: View {
                     .font(.system(size: 18, weight: .regular))
                     .frame(height: 22)
                     .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                    .overlay(alignment: .topTrailing) {
+                        if badge {
+                            Circle()
+                                .fill(Color.red)
+                                .frame(width: 8, height: 8)
+                                .offset(x: 4, y: -1)
+                        }
+                    }
                 Text(title)
                     .font(.system(size: 11))
                     .foregroundStyle(selected ? Color.primary : Color.secondary)

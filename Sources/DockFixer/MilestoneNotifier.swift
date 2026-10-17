@@ -177,17 +177,9 @@ final class MilestoneNotifier: NSObject {
         }
     }
 
-    /// Never shows a prompt. At the first milestone the app has not been
-    /// asked about yet, it asks for *provisional* permission, which the
-    /// system grants on the spot and silently: the notification goes
-    /// straight to Notification Center, without a banner, and carries Keep
-    /// and Turn Off buttons there, so the user decides about DockFixer's
-    /// notifications with one in front of them rather than before there is
-    /// anything to show. The prompting request, for banners, belongs to a
-    /// place where the user asked for it — onboarding and Settings — and
-    /// never to a milestone that turns up in the middle of someone's work.
-    /// A user who said no, or turned the notifications off later, gets
-    /// nothing and is not asked again.
+    /// Never shows a prompt; what each answer leads to is
+    /// `NotificationAccess.milestonePlan`. Only an app that was never asked
+    /// asks here, and only for the quiet, provisional kind.
     private func decide(hours: Int, windows: Int, status: UNAuthorizationStatus) {
         // Each milestone is marked done when the decision about it is made,
         // not when a notification appears. Whatever happens below — refused,
@@ -195,8 +187,8 @@ final class MilestoneNotifier: NSObject {
         // go with it.
         announced = max(announced, hours)
 
-        switch status {
-        case .notDetermined:
+        switch NotificationAccess.milestonePlan(Self.permission(status)) {
+        case .askQuietlyThenPost:
             log?.info("milestones: \(hours) h reached, asking for provisional permission to notify")
             requestAuthorization(provisional: true) { granted in
                 if granted {
@@ -206,12 +198,22 @@ final class MilestoneNotifier: NSObject {
                     self.inFlight = false
                 }
             }
-        case .denied:
+        case .skip:
             log?.info("milestones: notifications are turned off — \(hours) h not announced")
             inFlight = false
-        default:
-            // Authorized, provisional, ephemeral: all may post.
+        case .post:
             post(hours: hours, windows: windows)
+        }
+    }
+
+    /// The system's answer in Core's words. Ephemeral is an App Clip's and
+    /// never seen on the Mac; it may post, so it reads as allowed.
+    nonisolated static func permission(_ status: UNAuthorizationStatus) -> NotificationAccess.Permission {
+        switch status {
+        case .notDetermined: return .notAsked
+        case .denied: return .denied
+        case .provisional: return .provisional
+        default: return .allowed
         }
     }
 
@@ -255,27 +257,8 @@ final class MilestoneNotifier: NSObject {
              level: level, sound: sound, evenIfDropped: true, then: then)
     }
 
-    /// Where a notification posted now ends up, as far as the settings tell.
-    /// Read right before each post, because `add` completes without an error
-    /// when notifications are turned off — the system drops the notification
-    /// afterwards, and a log line that says "posted" would be a lie.
-    enum Reach: Sendable {
-        /// The app was never asked: the system drops it.
-        case notAsked
-        /// The user said no, or turned DockFixer off in System Settings.
-        case denied
-        /// Provisional permission: Notification Center only, no banner.
-        case provisional
-        /// Allowed, but nothing on screen: the level is `.passive`, or the
-        /// alert style is None. Notification Center only.
-        case listOnly
-        /// Allowed, and a banner that goes away by itself.
-        case banner
-        /// Allowed, and an alert that stays until it is closed.
-        case alert
-        /// Allowed, but alerts and Notification Center are both off.
-        case nowhere
-    }
+    /// Where a notification posted now ends up; see `NotificationAccess`.
+    typealias Reach = NotificationAccess.Reach
 
     /// What happened to one post, for the log and the Debug tab.
     struct PostResult: Sendable {
@@ -309,8 +292,9 @@ final class MilestoneNotifier: NSObject {
                         let result = PostResult(reach: reach, posted: posted, error: error, level: level,
                                                 sound: sound, soundSetting: soundSetting,
                                                 timeSensitiveSetting: timeSensitiveSetting)
-                        self.log?.info("milestones: \(Self.logLine(result)) — \(hours) h (\(windows) windows)")
-                        if Self.reachedTheUser(result) {
+                        let line = NotificationAccess.logLine(reach, posted: posted, error: error)
+                        self.log?.info("milestones: \(line) — \(hours) h (\(windows) windows)")
+                        if NotificationAccess.reachedTheUser(reach, posted: posted, failed: error != nil) {
                             // The dot on the icon is for whoever missed the
                             // banner, which is gone in a few seconds; a test
                             // from the Debug tab puts it there too, so it can
@@ -324,8 +308,7 @@ final class MilestoneNotifier: NSObject {
                         if identifier == nil { self.inFlight = false }
                         then?(result)
                     }
-                    let dropped = reach == .notAsked || reach == .denied
-                    if dropped && !evenIfDropped { return finish(false, nil) }
+                    if NotificationAccess.isDropped(reach) && !evenIfDropped { return finish(false, nil) }
                     UNUserNotificationCenter.current().add(Self.request(hours: hours, windows: windows, identifier: identifier,
                                             level: level, sound: sound)) { error in
                         let message = error.map { "\($0.localizedDescription)" }
@@ -365,49 +348,16 @@ final class MilestoneNotifier: NSObject {
                                      content: content, trigger: nil)
     }
 
-    /// Whether a post put something where the user can find it: a banner,
-    /// an alert, or a quiet entry in Notification Center. Not when the system
-    /// dropped it, nor when alerts and Notification Center are both off.
-    private static func reachedTheUser(_ r: PostResult) -> Bool {
-        guard r.posted, r.error == nil else { return false }
-        switch r.reach {
-        case .provisional, .listOnly, .banner, .alert: return true
-        case .notAsked, .denied, .nowhere: return false
-        }
-    }
-
     private nonisolated static func reach(_ s: UNNotificationSettings,
                                           level: UNNotificationInterruptionLevel) -> Reach {
-        switch s.authorizationStatus {
-        case .notDetermined: return .notAsked
-        case .denied: return .denied
-        case .provisional: return .provisional
-        default: break
+        let style: NotificationAccess.Delivery.Style = switch s.alertStyle {
+        case .alert: .alert
+        case .banner: .banner
+        default: .none
         }
-        let inCenter = s.notificationCenterSetting == .enabled
-        if level == .passive || s.alertSetting != .enabled || s.alertStyle == .none {
-            return inCenter ? .listOnly : .nowhere
-        }
-        return s.alertStyle == .alert ? .alert : .banner
-    }
-
-    /// The log line for a post: what the system will do with it, not merely
-    /// that `add` returned.
-    private static func logLine(_ r: PostResult) -> String {
-        if let error = r.error { return "could not post — \(error)" }
-        let reason = switch r.reach {
-        case .notAsked: "notifications were never allowed"
-        case .denied: "notifications denied"
-        default: ""
-        }
-        if !r.posted { return "not posted — \(reason)" }
-        return switch r.reach {
-        case .notAsked, .denied: "posted, but the system drops it — \(reason)"
-        case .provisional, .listOnly: "posted quietly (Notification Center only)"
-        case .banner: "posted (banner)"
-        case .alert: "posted (alert)"
-        case .nowhere: "posted, but alerts and Notification Center are both off"
-        }
+        let delivery = NotificationAccess.Delivery(alertsOn: s.alertSetting == .enabled, style: style,
+                                                   inNotificationCenter: s.notificationCenterSetting == .enabled)
+        return NotificationAccess.reach(permission(s.authorizationStatus), delivery, passive: level == .passive)
     }
 
     nonisolated static func describe(_ level: UNNotificationInterruptionLevel) -> String {

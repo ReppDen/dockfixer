@@ -163,7 +163,7 @@ struct StatsView: View {
     private static let inset: CGFloat = 16
 
     var body: some View {
-        let data = StatsData(days: SampleStats.isOn ? SampleStats.current : state.usageDays)
+        let data = StatsData(days: state.usageDays)
         VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(lead(data))
@@ -359,51 +359,4 @@ private struct EmptyNote: View {
                 .foregroundStyle(.secondary)
         }
     }
-}
-
-// MARK: - Sample data
-
-/// A made-up history for judging the screen on believable numbers, used
-/// while the file `~/Library/Logs/DockFixer/sample-stats` exists. Only in a
-/// development build: a release must never show anyone numbers that are not
-/// theirs.
-enum SampleStats {
-    static var isOn: Bool {
-        DebugView.isAvailable && FileManager.default.fileExists(atPath: file.path)
-    }
-
-    /// The file holding the word `empty` shows a history with nothing in
-    /// it, as on a fresh install.
-    static var current: [UsageDay] {
-        (try? String(contentsOf: file, encoding: .utf8))?.hasPrefix("empty") == true ? [] : days
-    }
-
-    private static var file: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/DockFixer/sample-stats")
-    }
-
-    /// 120 days ending today: busy weekdays, quiet weekends, a few days off,
-    /// a display plugged in now and then. The same numbers every time.
-    static let days: [UsageDay] = {
-        var seed: UInt64 = 42
-        func next(_ n: Int) -> Int {
-            seed = seed &* 6364136223846793005 &+ 1442695040888963407
-            return Int((seed >> 33) % UInt64(n))
-        }
-        var result: [UsageDay] = []
-        let now = Date()
-        for back in (0..<120).reversed() {
-            let date = now.addingTimeInterval(Double(-back) * 86400)
-            let weekday = Calendar.current.component(.weekday, from: date)
-            let weekend = weekday == 1 || weekday == 7
-            if next(10) == 0 || (weekend && next(3) > 0) { continue }
-            let busy = weekend ? 1 : 3
-            result.append(UsageDay(day: UsageJournal.day(of: date),
-                                   pushedOut: next(14 * busy) + 2,
-                                   stuck: next(30 * busy),
-                                   acrossDisplays: next(5) == 0 ? next(12) + 1 : 0))
-        }
-        return result
-    }()
 }

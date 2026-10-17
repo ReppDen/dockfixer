@@ -22,9 +22,15 @@ struct DockFixerApp: App {
         }
         .commands {
             CommandGroup(replacing: .newItem) {}
-            // The window is the settings, so ⌘, opens it, as in any Mac app.
+            // The window is the settings, so ⌘, opens it, as in any Mac app —
+            // on the Settings tab, which is what the command is called. Left
+            // to itself the window comes back on whichever tab it was hidden
+            // on, and "Settings…" would then open the Stats.
             CommandGroup(replacing: .appSettings) {
-                Button("Settings…") { delegate.showMainWindow() }
+                Button("Settings…") {
+                    state.showSettings()
+                    delegate.showMainWindow()
+                }
                     .keyboardShortcut(",", modifiers: .command)
             }
         }
@@ -296,6 +302,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // one that means something. Dragging the edges still resizes it.
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
+        // The name is already the first line inside the window, next to the
+        // icon; said again in the title bar it was the same word twice, one
+        // above the other. Only hidden: the title itself stays, because
+        // `isMainWindow` finds the window by it and the Window menu lists it.
+        window.titleVisibility = .hidden
 
         guard let button = window.standardWindowButton(.closeButton),
               button.target !== self

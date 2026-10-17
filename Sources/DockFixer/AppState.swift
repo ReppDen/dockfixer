@@ -324,12 +324,18 @@ final class AppState: ObservableObject {
         }
         watcher?.ignoreSmallDockChanges = ignoreSmallDockChanges
 
-        windowWatcher = WindowWatcher(log: log) { [weak self] window, pid, appName in
+        windowWatcher = WindowWatcher(log: log) { [weak self] window, pid, appName, event in
             // A window is announced the moment it exists, which is before its
-            // application has finished placing and sizing it.
-            DispatchQueue.main.asyncAfter(deadline: .now() + Timing.default.newWindow) {
+            // application has finished placing and sizing it; a restored one
+            // as it starts out of the Dock.
+            let delay: TimeInterval
+            switch event {
+            case .appeared: delay = Timing.default.newWindow
+            case .restored: delay = Timing.default.restoredWindow
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 MainActor.assumeIsolated {
-                    self?.fixNewWindow(window, pid: pid, appName: appName)
+                    self?.fixWindow(window, pid: pid, appName: appName, event: event)
                 }
             }
         }
@@ -602,17 +608,31 @@ final class AppState: ObservableObject {
     /// for being that small, are the same tolerance seen from two sides.
     private var slack: CGFloat { ignoreSmallDockChanges ? dockNoise : 0 }
 
-    /// Not a pass: only the window that opened is looked at, so it neither
-    /// waits for one that is running nor uses up the layout a display change
-    /// left behind. Silent when the window was fine, which is nearly always.
-    private func fixNewWindow(_ window: AXUIElement, pid: pid_t, appName: String) {
+    /// Not a pass: only the window that opened, or came back from the Dock,
+    /// is looked at, so it neither waits for one that is running nor uses up
+    /// the layout a display change left behind. Silent when the window was
+    /// fine, which is nearly always.
+    ///
+    /// A restored window follows the Dock under the same switches as a pass,
+    /// against the layout it was minimised in; a new one follows nothing.
+    private func fixWindow(_ window: AXUIElement, pid: pid_t, appName: String, event: WindowWatcher.Event) {
         guard isTrusted else { return }
+        let what: String
+        let minimizedIn: [ScreenInfo]?
+        let follow: WindowScanner.Follow
+        switch event {
+        case .appeared:
+            (what, minimizedIn, follow) = ("new window", nil, [])
+        case .restored(let screens):
+            (what, minimizedIn, follow) = ("restored window", screens, self.follow)
+        }
         scanner.run(window: window, pid: pid, appName: appName,
+                    previousScreens: minimizedIn, follow: follow,
                     slack: slack, debugDetail: log.isDebug) { [weak self] summary in
             guard let self else { return }
             record(summary)
             if summary.candidates > 0 {
-                log.info("new window — \(summary.headline)")
+                log.info("\(what) — \(summary.headline)")
             }
         }
     }

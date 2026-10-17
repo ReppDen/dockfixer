@@ -19,10 +19,34 @@ import ApplicationServices
 /// the window on the remaining display, under the Dock if that is where its
 /// corner lands, and the pass for that change never saw it. When it comes back
 /// into view it is handed over like a window that has just opened.
+///
+/// And one that is not quite a window appearing: a window restored from the
+/// Dock. A pass skips minimised windows, so one comes back exactly where it
+/// was minimised, whatever the Dock did meanwhile — and on a full Dock it
+/// changes width every time an application opens or quits, and with every
+/// window minimised or restored. The window lands under a Dock that grew, or
+/// with a gap beside one that shrank, and with nothing about the layout left
+/// to change, nothing set off a pass. So the layout is remembered when the
+/// window is minimised, and the window is handed over with it when it comes
+/// back.
 @MainActor
 public final class WindowWatcher {
 
-    public typealias Handler = (_ window: AXUIElement, _ pid: pid_t, _ appName: String) -> Void
+    /// What brought a window to the handler.
+    public enum Event {
+        /// Opened, or back in view after ⌘H or a Space switch.
+        case appeared
+        /// Restored from the Dock. `minimizedIn` is the layout when it was
+        /// minimised, or `nil` when that happened before the watcher was
+        /// running.
+        case restored(minimizedIn: [ScreenInfo]?)
+    }
+
+    public typealias Handler = (_ window: AXUIElement, _ pid: pid_t, _ appName: String, _ event: Event) -> Void
+
+    /// Layouts kept for minimised windows. A window closed while minimised
+    /// never says so, so the oldest ones are let go past this many.
+    private static let minimizedLimit = 200
 
     /// How often to try again to observe an application that has only just
     /// launched: its accessibility tree is not always up yet when the launch is
@@ -33,6 +57,9 @@ public final class WindowWatcher {
     private let handler: Handler
 
     private var observers: [pid_t: AXObserver] = [:]
+    /// The layout each minimised window was minimised in. A list, because an
+    /// `AXUIElement` is only comparable with `CFEqual`.
+    private var minimized: [(window: AXUIElement, pid: pid_t, screens: [ScreenInfo])] = []
     private var workspaceObservers: [NSObjectProtocol] = []
 
     public private(set) var isRunning = false
@@ -137,12 +164,21 @@ public final class WindowWatcher {
             }
             return
         }
+        // Once creation is being watched the application answers, so these
+        // are expected to succeed; one that does not only costs the restored
+        // case, and is said so.
+        for notification in [kAXWindowMiniaturizedNotification, kAXWindowDeminiaturizedNotification] {
+            let added = AXObserverAddNotification(observer, element, notification as CFString, refcon)
+            if added != .success {
+                log.info("\(name): not watching for \(notification) — \(AX.describe(added))")
+            }
+        }
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
         observers[pid] = observer
 
         if handOverExisting {
             for window in AX.windows(of: element) ?? [] {
-                handler(window, pid, name)
+                handler(window, pid, name, .appeared)
             }
         }
     }
@@ -185,37 +221,59 @@ public final class WindowWatcher {
         log.debug("\(reason) — \(windows.count) window\(windows.count == 1 ? "" : "s") in \(appsSeen) app\(appsSeen == 1 ? "" : "s") handed over"
             + (attempt > 0 ? " on look \(attempt + 1)" : ""))
         for (window, pid, name) in windows {
-            handler(window, pid, name)
+            handler(window, pid, name, .appeared)
         }
     }
 
     private func detach(_ pid: pid_t) {
+        minimized.removeAll { $0.pid == pid }
         guard let observer = observers.removeValue(forKey: pid) else { return }
         CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode)
     }
 
     /// Quick Note, for one, is a fresh window every time it opens rather than a
-    /// hidden one brought back, so creation is the only event that matters.
-    fileprivate func received(window: AXUIElement) {
+    /// hidden one brought back, so creation is what matters for new windows.
+    fileprivate func received(window: AXUIElement, notification: String) {
         var pid: pid_t = 0
         AXUIElementGetPid(window, &pid)
         let name = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "pid \(pid)"
 
-        if log.isDebug {
+        func debug(_ what: String) {
+            guard log.isDebug else { return }
             let title = AX.string(window, kAXTitleAttribute as String) ?? ""
             let frame = AX.frame(window)?.logDescription ?? "unreadable"
-            log.debug("window opened — \(name) \"\(title)\" \(frame)")
+            log.debug("\(what) — \(name) \"\(title)\" \(frame)")
         }
-        handler(window, pid, name)
+
+        switch notification {
+        case kAXWindowMiniaturizedNotification:
+            // Read now, while the Dock is still the width it was with the
+            // window on screen: the tile the window turns into changes it.
+            debug("window minimized")
+            minimized.removeAll { CFEqual($0.window, window) }
+            minimized.append((window, pid, ScreenMap.current()))
+            if minimized.count > Self.minimizedLimit {
+                minimized.removeFirst(minimized.count - Self.minimizedLimit)
+            }
+        case kAXWindowDeminiaturizedNotification:
+            debug("window restored")
+            let index = minimized.firstIndex { CFEqual($0.window, window) }
+            let screens = index.map { minimized.remove(at: $0).screens }
+            handler(window, pid, name, .restored(minimizedIn: screens))
+        default:
+            debug("window opened")
+            handler(window, pid, name, .appeared)
+        }
     }
 }
 
 /// A C function pointer cannot capture, so the watcher travels as the refcon.
 /// Delivered on the main run loop, which is where the sources are added.
-private let windowCallback: AXObserverCallback = { _, element, _, refcon in
+private let windowCallback: AXObserverCallback = { _, element, notification, refcon in
     guard let refcon else { return }
     let watcher = Unmanaged<WindowWatcher>.fromOpaque(refcon).takeUnretainedValue()
+    let name = notification as String
     MainActor.assumeIsolated {
-        watcher.received(window: element)
+        watcher.received(window: element, notification: name)
     }
 }

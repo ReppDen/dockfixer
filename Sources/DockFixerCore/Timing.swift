@@ -21,6 +21,11 @@ public struct Timing: Sendable, Equatable {
     /// announced the moment it exists, before its application has finished
     /// placing it.
     public var newWindow: TimeInterval
+    /// How long a window restored from the Dock is left alone. It is
+    /// announced as the animation out of the Dock starts, and a frame
+    /// written while the window is still flying is one the animation may
+    /// land over.
+    public var restoredWindow: TimeInterval
 
-    public static let `default` = Timing(poll: 0.1, maxWait: 20, newWindow: 0.05)
+    public static let `default` = Timing(poll: 0.1, maxWait: 20, newWindow: 0.05, restoredWindow: 0.5)
 }

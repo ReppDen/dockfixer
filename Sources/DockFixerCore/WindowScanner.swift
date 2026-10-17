@@ -144,6 +144,59 @@ public final class WindowScanner: Sendable {
         public static let all: Follow = [.sameDisplay, .acrossDisplays]
     }
 
+    /// What a correction may do besides clearing the Dock, worked out once
+    /// from two layouts and the switches: the space each display regained,
+    /// which displays the Dock left altogether, and how far the magnet
+    /// reaches. A pass and a single window go through the same function, so
+    /// a window restored from the Dock is treated exactly as a pass would
+    /// have treated it.
+    public struct Following: Sendable {
+        public let reclaim: [CGDirectDisplayID: ReclaimedSpace]
+        /// The displays the Dock left altogether: the third switch's case,
+        /// and the third count in the usage statistics.
+        public let departed: Set<CGDirectDisplayID>
+        public let snap: CGFloat
+    }
+
+    /// - Parameter previous: the layout to compare against — the one before
+    ///   a display change, or the one a window was minimised in — or `nil`
+    ///   when there is none, which leaves only the magnet.
+    public static func following(previous: [ScreenInfo]?,
+                                 current: [ScreenInfo],
+                                 follow: Follow) -> Following {
+        // A display the Dock left altogether is the across-displays case; a
+        // Dock still on the display, thinner or on another edge, the same-
+        // display one.
+        var departed = Set<CGDirectDisplayID>()
+        let reclaim = (previous.map { reclaims(previous: $0, current: current) } ?? [:])
+            .filter { displayID, _ in
+                let hadDock = previous?.first { $0.displayID == displayID }?.dockSide != nil
+                let hasDock = current.first { $0.displayID == displayID }?.dockSide != nil
+                if hadDock && !hasDock {
+                    departed.insert(displayID)
+                    return follow.contains(.acrossDisplays)
+                }
+                return follow.contains(.sameDisplay)
+            }
+        return Following(reclaim: reclaim,
+                         departed: departed,
+                         snap: follow.contains(.sameDisplay) ? dockSnap : 0)
+    }
+
+    /// Where one window on `screen` should go, or `nil` to leave it. Pure:
+    /// everything the Accessibility side read is passed in.
+    public static func correction(for frame: CGRect,
+                                  on screen: ScreenInfo,
+                                  following: Following,
+                                  slack: CGFloat) -> WindowFix? {
+        computeFix(window: frame,
+                   visible: screen.axVisibleFrame,
+                   reclaim: following.reclaim[screen.displayID],
+                   slack: slack,
+                   snap: following.snap,
+                   dockSide: screen.dockSide)
+    }
+
     /// Snapshot of the display layout and the running applications, both of
     /// which must be read on the main thread, followed by the Accessibility work
     /// on a background queue.
@@ -183,20 +236,33 @@ public final class WindowScanner: Sendable {
         }
     }
 
-    /// The same correction for one window that has just opened.
+    /// The same correction for one window: one that has just opened, or one
+    /// restored from the Dock.
     ///
-    /// Nothing is reclaimed: the space the Dock leaves behind belongs to a
-    /// display change, and a new window was not being held anywhere by it.
+    /// A new window follows nothing — `follow` empty, no layout: the space
+    /// the Dock leaves behind belongs to a display change, a new window was
+    /// not being held anywhere by it, and a gap its application chose is not
+    /// a Dock's leftover. A restored window is the opposite case: it comes
+    /// back exactly where it was minimised, and the Dock may have changed
+    /// size since — on a full Dock it does every time an application opens
+    /// or quits, and minimising adds a tile of its own. Compared against the
+    /// layout it was minimised in, it is moved as a pass would have moved it
+    /// had it been on screen: out from under a Dock that grew, back against
+    /// one that shrank.
+    ///
     /// Runs on the same queue as a whole pass, so the two never write to one
     /// window at the same time.
     @MainActor
     public func run(window: AXUIElement,
                     pid: pid_t,
                     appName: String,
+                    previousScreens: [ScreenInfo]? = nil,
+                    follow: Follow = [],
                     slack: CGFloat = dockNoise,
                     debugDetail: Bool = false,
                     completion: @escaping (ScanSummary) -> Void) {
         let screens = ScreenMap.current()
+        let following = Self.following(previous: previousScreens, current: screens, follow: follow)
         let app = AppRef(pid: pid, name: appName)
         queue.async { [weak self] in
             guard let self else { return }
@@ -204,10 +270,8 @@ public final class WindowScanner: Sendable {
             if AX.isTrusted {
                 summary.appsScanned = 1
                 summary.windowsSeen = 1
-                // No snap: this window was just placed by its application,
-                // and a gap it chose is not a Dock's leftover.
                 if let plan = self.decide(window: window, app: app, screens: screens,
-                                          reclaim: [:], departed: [], slack: slack, snap: 0,
+                                          following: following, slack: slack,
                                           debugDetail: debugDetail, into: &summary) {
                     summary.candidates += 1
                     summary.merge(self.write(plans: [plan]))
@@ -286,23 +350,8 @@ public final class WindowScanner: Sendable {
             return summary
         }
 
-        // A display the Dock left altogether is the across-displays case; a
-        // Dock still on the display, thinner or on another edge, the same-
-        // display one.
-        // The displays the Dock left altogether: the third switch's case, and
-        // the third count in the usage statistics.
-        var departed = Set<CGDirectDisplayID>()
-        let reclaim = (previousScreens.map { reclaims(previous: $0, current: screens) } ?? [:])
-            .filter { displayID, _ in
-                let hadDock = previousScreens?.first { $0.displayID == displayID }?.dockSide != nil
-                let hasDock = screens.first { $0.displayID == displayID }?.dockSide != nil
-                if hadDock && !hasDock {
-                    departed.insert(displayID)
-                    return follow.contains(.acrossDisplays)
-                }
-                return follow.contains(.sameDisplay)
-            }
-        let snap = follow.contains(.sameDisplay) ? dockSnap : 0
+        let following = Self.following(previous: previousScreens, current: screens, follow: follow)
+        let reclaim = following.reclaim
         if debugDetail {
             note("DockFixer", "", "pass — previous layout: \(previousScreens == nil ? "none" : "known")")
             for screen in screens {
@@ -332,8 +381,8 @@ public final class WindowScanner: Sendable {
         var perApp = [AppScan?](repeating: nil, count: apps.count)
         perApp.withUnsafeMutableBufferPointer { buffer in
             DispatchQueue.concurrentPerform(iterations: apps.count) { index in
-                buffer[index] = decide(app: apps[index], screens: screens, reclaim: reclaim,
-                                       departed: departed, slack: slack, snap: snap, debugDetail: debugDetail)
+                buffer[index] = decide(app: apps[index], screens: screens, following: following,
+                                       slack: slack, debugDetail: debugDetail)
             }
         }
 
@@ -344,8 +393,8 @@ public final class WindowScanner: Sendable {
         // in question were left under the Dock.
         for index in perApp.indices where perApp[index] == nil {
             usleep(100_000)
-            perApp[index] = decide(app: apps[index], screens: screens, reclaim: reclaim,
-                                   departed: departed, slack: slack, snap: snap, debugDetail: debugDetail, retry: true)
+            perApp[index] = decide(app: apps[index], screens: screens, following: following,
+                                   slack: slack, debugDetail: debugDetail, retry: true)
         }
 
         var plans: [Plan] = []
@@ -504,10 +553,8 @@ public final class WindowScanner: Sendable {
     /// looks, so the error is recorded when the pass is being detailed.
     private func decide(app: AppRef,
                         screens: [ScreenInfo],
-                        reclaim: [CGDirectDisplayID: ReclaimedSpace],
-                        departed: Set<CGDirectDisplayID>,
+                        following: Following,
                         slack: CGFloat,
-                        snap: CGFloat,
                         debugDetail: Bool,
                         retry: Bool = false) -> AppScan? {
         let appElement = AX.application(pid: app.pid)
@@ -536,7 +583,7 @@ public final class WindowScanner: Sendable {
         for window in windows {
             own.summary.windowsSeen += 1
             if let plan = decide(window: window, app: app, screens: screens,
-                                 reclaim: reclaim, departed: departed, slack: slack, snap: snap,
+                                 following: following, slack: slack,
                                  debugDetail: debugDetail, into: &own.summary) {
                 own.plans.append(plan)
             }
@@ -555,10 +602,8 @@ public final class WindowScanner: Sendable {
     private func decide(window: AXUIElement,
                         app: AppRef,
                         screens: [ScreenInfo],
-                        reclaim: [CGDirectDisplayID: ReclaimedSpace],
-                        departed: Set<CGDirectDisplayID>,
+                        following: Following,
                         slack: CGFloat,
-                        snap: CGFloat,
                         debugDetail: Bool,
                         into summary: inout ScanSummary) -> Plan? {
         let title = AX.string(window, kAXTitleAttribute as String) ?? ""
@@ -621,18 +666,13 @@ public final class WindowScanner: Sendable {
             return skip(.noDisplay)
         }
 
-        guard let fix = computeFix(window: frame,
-                                   visible: screen.axVisibleFrame,
-                                   reclaim: reclaim[screen.displayID],
-                                   slack: slack,
-                                   snap: snap,
-                                   dockSide: screen.dockSide) else {
+        guard let fix = Self.correction(for: frame, on: screen, following: following, slack: slack) else {
             // Already inside the usable area, with nothing to reclaim.
             // Not logged: this is most windows.
             let inside = screen.axVisibleFrame.contains(frame)
             note("\(frame.logDescription) on \(screen.localizedName) — "
                 + (inside ? "nothing to correct" : "sticks out by \(Int(slack))pt or less, left alone")
-                + (reclaim[screen.displayID] == nil ? "" : ", and it was not held by the Dock"))
+                + (following.reclaim[screen.displayID] == nil ? "" : ", and it was not held by the Dock"))
             return nil
         }
 
@@ -651,7 +691,7 @@ public final class WindowScanner: Sendable {
         let kind: UsageKind
         switch fix.reason {
         case .underDock: kind = .pushedOut
-        case .followedDock: kind = departed.contains(screen.displayID) ? .acrossDisplays : .stuck
+        case .followedDock: kind = following.departed.contains(screen.displayID) ? .acrossDisplays : .stuck
         }
         return Plan(window: window, app: app, title: title, frame: frame, screen: screen, fix: fix, kind: kind)
     }

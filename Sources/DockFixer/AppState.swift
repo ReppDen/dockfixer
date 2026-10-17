@@ -751,16 +751,21 @@ final class AppState: ObservableObject {
         fixNowResult = Activity(text: text, date: Date(), needsAttention: summary.failed > 0)
     }
 
+    /// Every move goes into the log; only the moves of windows the user could
+    /// see go into the statistics, the usage event and the milestones. A full
+    /// Dock changing by a point moves every maximised window on the Mac, and
+    /// counting the ones buried under others would credit DockFixer with
+    /// work nobody saw it do.
     private func record(_ summary: ScanSummary) {
         // Once per pass, not per window: a pass after a display change moves
         // twenty windows, and twenty redraws of the Stats tab say nothing more.
         defer {
-            if summary.outcomes.contains(where: { $0.kind != nil }) {
+            if summary.outcomes.contains(where: { $0.kind != nil && $0.visible }) {
                 usageDays = usageHistory.allDays
             }
         }
         for outcome in summary.outcomes {
-            if let kind = outcome.kind {
+            if let kind = outcome.kind, outcome.visible {
                 usageJournal?.record(kind)
                 usageHistory.record(kind)
                 MilestoneNotifier.shared.windowMoved(kind)

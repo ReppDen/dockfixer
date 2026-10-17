@@ -14,6 +14,9 @@ public struct WindowOutcome: Sendable {
     public var logOncePerSession = false
     /// What the move counts as in the usage statistics; set on `moved` only.
     public var kind: UsageKind? = nil
+    /// Whether the user could see the window when it was moved; only such
+    /// moves go into the usage statistics. See `Visibility`.
+    public var visible = false
 }
 
 /// Why a window was passed over.
@@ -274,7 +277,7 @@ public final class WindowScanner: Sendable {
                                           following: following, slack: slack,
                                           debugDetail: debugDetail, into: &summary) {
                     summary.candidates += 1
-                    summary.merge(self.write(plans: [plan]))
+                    summary.merge(self.write(plans: [plan], screens: screens, debugDetail: debugDetail))
                 }
             }
             DispatchQueue.main.async { completion(summary) }
@@ -303,6 +306,8 @@ public final class WindowScanner: Sendable {
         /// Where the window sits in the stacking order, front first; windows
         /// not on screen go last.
         var depth = Int.max
+        /// Whether some part of it was in sight before it was moved.
+        var visible = false
 
         var transition: String {
             "\(frame.logDescription) -> \(fix.rect.logDescription) \(fix.logDetail)"
@@ -404,7 +409,7 @@ public final class WindowScanner: Sendable {
         }
         summary.candidates += plans.count
 
-        summary.merge(write(plans: plans))
+        summary.merge(write(plans: plans, screens: screens, debugDetail: debugDetail))
         return summary
     }
 
@@ -416,9 +421,19 @@ public final class WindowScanner: Sendable {
     /// parallel, each one's windows in that order, so the frontmost window
     /// of every application is its first write and the frontmost application
     /// is not waiting on any other.
-    private func write(plans: [Plan]) -> ScanSummary {
+    ///
+    /// The same list says which windows the user could see, for the usage
+    /// statistics. Read before the first write, it is the screen the user was
+    /// looking at; a window counts when some of it was in sight there. A
+    /// window not in it at all — one that has just opened or is coming back
+    /// from the Dock, which the window server may not have put on screen yet
+    /// when Accessibility reports it — is given a second chance once every
+    /// window has landed: if some of it is in sight where it ended up, the
+    /// user saw it arrive there.
+    private func write(plans: [Plan], screens: [ScreenInfo], debugDetail: Bool) -> ScanSummary {
         var plans = plans
-        Self.assignDepths(&plans)
+        let displays = screens.map(\.axFrame)
+        Self.place(&plans, displays: displays)
 
         var groups: [pid_t: [Plan]] = [:]
         for plan in plans {
@@ -430,7 +445,7 @@ public final class WindowScanner: Sendable {
         let ordered = order.map { pid in groups[pid]!.sorted { $0.depth < $1.depth } }
 
         let started = Date()
-        var results = [ScanSummary?](repeating: nil, count: ordered.count)
+        var results = [(summary: ScanSummary, moved: [(plan: Plan, outcome: Int)])?](repeating: nil, count: ordered.count)
         results.withUnsafeMutableBufferPointer { buffer in
             DispatchQueue.concurrentPerform(iterations: ordered.count) { index in
                 // All of this application's writes, then all of its readbacks:
@@ -443,15 +458,45 @@ public final class WindowScanner: Sendable {
                     writes.append((at.timeIntervalSince(started), Date().timeIntervalSince(at)))
                 }
                 var own = ScanSummary()
+                var moved: [(plan: Plan, outcome: Int)] = []
                 for (plan, write) in zip(ordered[index], writes) {
                     settle(plan, write: write, into: &own)
+                    // `settle` adds exactly one outcome per window.
+                    if own.outcomes.last?.level == .moved {
+                        moved.append((plan, own.outcomes.count - 1))
+                    }
                 }
-                buffer[index] = own
+                buffer[index] = (own, moved)
             }
         }
         var summary = ScanSummary()
+        var moved: [(plan: Plan, outcome: Int)] = []
         for own in results.compactMap({ $0 }) {
-            summary.merge(own)
+            moved += own.moved.map { ($0.plan, $0.outcome + summary.outcomes.count) }
+            summary.merge(own.summary)
+        }
+
+        // Matched again in the order of the first look, front first, so that
+        // of two windows with the same owner and the same bounds the one that
+        // was in front takes the front entry again; the windows already seen
+        // are matched too, only so that a hidden twin cannot take theirs.
+        if moved.contains(where: { !$0.plan.visible }), let after = Self.windowStack() {
+            moved.sort { $0.plan.depth < $1.plan.depth }
+            let found = Visibility.match(moved.map { ($0.plan.app.pid, $0.plan.fix.rect) }, in: after)
+            for (entry, index) in zip(moved, found) where !entry.plan.visible {
+                if let index, Visibility.isPartlyVisible(at: index, in: after, displays: displays) {
+                    summary.outcomes[entry.outcome].visible = true
+                }
+            }
+        }
+        if debugDetail {
+            for entry in moved where !summary.outcomes[entry.outcome].visible {
+                summary.outcomes.append(WindowOutcome(
+                    app: entry.plan.app.name, title: entry.plan.title, level: .debug,
+                    detail: entry.plan.depth == .max
+                        ? "not counted — not on screen"
+                        : "not counted — covered by the windows in front of it"))
+            }
         }
         return summary
     }
@@ -500,7 +545,7 @@ public final class WindowScanner: Sendable {
             summary.moved += 1
             summary.outcomes.append(WindowOutcome(
                 app: plan.app.name, title: plan.title, level: .moved, detail: plan.transition + timing,
-                kind: plan.kind))
+                kind: plan.kind, visible: plan.visible))
         case .mismatch(let actual, let attempts, let error):
             summary.failed += 1
             summary.outcomes.append(WindowOutcome(
@@ -516,36 +561,42 @@ public final class WindowScanner: Sendable {
         }
     }
 
-    /// Where each planned window sits in the stacking order, from the window
-    /// server's list of on-screen windows, matched by owner and bounds. The
-    /// list carries no titles without Screen Recording access, but the bounds
-    /// and the owner are enough, and are given freely.
-    private static func assignDepths(_ plans: inout [Plan]) {
+    /// Where each planned window sits in the stacking order, and whether any
+    /// of it is in sight, from the window server's list of on-screen windows,
+    /// matched by owner and bounds. The list carries no titles without Screen
+    /// Recording access, but the bounds and the owner are enough, and are
+    /// given freely.
+    private static func place(_ plans: inout [Plan], displays: [CGRect]) {
+        guard let stack = windowStack() else { return }
+        let found = Visibility.match(plans.map { ($0.app.pid, $0.frame) }, in: stack)
+        for (index, depth) in zip(plans.indices, found) {
+            guard let depth else { continue }
+            plans[index].depth = depth
+            plans[index].visible = Visibility.isPartlyVisible(at: depth, in: stack, displays: displays)
+        }
+    }
+
+    /// The windows on screen, front to back. Only the current Space's are
+    /// listed, so a window on another Space is simply not there.
+    private static func windowStack() -> [StackedWindow]? {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                                     kCGNullWindowID) as? [[String: Any]]
-        else { return }
-        var stack: [(pid: pid_t, bounds: CGRect)] = []
-        for entry in list {
+        else { return nil }
+        return list.compactMap { entry in
             guard let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
                   let bounds = entry[kCGWindowBounds as String] as? [String: CGFloat],
                   let x = bounds["X"], let y = bounds["Y"],
                   let w = bounds["Width"], let h = bounds["Height"]
-            else { continue }
-            stack.append((pid, CGRect(x: x, y: y, width: w, height: h)))
-        }
-        for index in plans.indices {
-            let plan = plans[index]
-            plans[index].depth = stack.firstIndex {
-                $0.pid == plan.app.pid && isClose($0.bounds, to: plan.frame, tolerance: 2)
-            } ?? .max
+            else { return nil }
+            return StackedWindow(pid: pid,
+                                 bounds: CGRect(x: x, y: y, width: w, height: h),
+                                 layer: entry[kCGWindowLayer as String] as? Int ?? 0,
+                                 alpha: entry[kCGWindowAlpha as String] as? CGFloat ?? 1)
         }
     }
 
     private static func isClose(_ a: CGRect, to b: CGRect, tolerance: CGFloat) -> Bool {
-        abs(a.minX - b.minX) <= tolerance
-            && abs(a.minY - b.minY) <= tolerance
-            && abs(a.width - b.width) <= tolerance
-            && abs(a.height - b.height) <= tolerance
+        a.isClose(to: b, tolerance: tolerance)
     }
 
     /// One application's windows, or `nil` when it did not list any — normal

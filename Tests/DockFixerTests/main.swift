@@ -19,6 +19,9 @@ run.suite("Dock noise: a day of a wandering Dock", dockNoiseDay)
 run.suite("Snap: windows a few points from the Dock are put against it", snapToDock)
 run.suite("Snap: which side the Dock is on", snapDockSide)
 run.suite("Restored from the Dock: moved as a pass would have", restoredWindows)
+run.suite("Visibility: a window partly uncovered", visibilityUncovered)
+run.suite("Visibility: what counts as cover", visibilityStack)
+run.suite("Visibility: matching the window server's list", visibilityMatching)
 run.suite("ScreenMap: coordinate conversion", screenMapConversion)
 run.suite("Log: levels per build") { t in MainActor.assumeIsolated { logLevels(t) } }
 run.suite("Log: rotated while the app runs") { t in MainActor.assumeIsolated { logRotation(t) } }

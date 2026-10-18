@@ -66,6 +66,14 @@ public struct ScanSummary: Sendable {
 
     public var skipped: Int { skips.values.reduce(0, +) }
 
+    /// The moves that count: of windows the user could see. One number for
+    /// the statistics and for the answer under Fix Windows Now, so the two
+    /// never disagree.
+    public var counted: [WindowOutcome] { outcomes.filter { Self.counts(kind: $0.kind, visible: $0.visible) } }
+
+    /// Whether one outcome counts: a move, of a window the user could see.
+    public static func counts(kind: UsageKind?, visible: Bool) -> Bool { kind != nil && visible }
+
     /// Adds one application's results to the whole pass.
     public mutating func merge(_ other: ScanSummary) {
         outcomes += other.outcomes

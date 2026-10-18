@@ -309,3 +309,11 @@ func usageNotificationRetry(_ t: TestRun) {
     t.expect(log.entries.contains { $0.detail == "usage: notification shown (1 h) dropped — too many waiting" },
              "the oldest is dropped, and logged")
 }
+
+/// What a pass counts: the moves of windows the user could see. The Stats tab
+/// and the answer under Fix Windows Now both read this one rule.
+func usageCountedMoves(_ t: TestRun) {
+    t.expect(ScanSummary.counts(kind: .stuck, visible: true), "a visible move counts")
+    t.expect(!ScanSummary.counts(kind: .stuck, visible: false), "a move under other windows does not")
+    t.expect(!ScanSummary.counts(kind: nil, visible: true), "a visible window that was not moved does not")
+}

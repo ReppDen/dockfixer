@@ -743,8 +743,10 @@ final class AppState: ObservableObject {
     /// The pass that answers the button, in the words someone looking at the
     /// window would use: how many, not which — an application's name is not
     /// something to wait for or to fit into a line. The details stay in the log.
+    /// The same count as the Stats tab: a window moved under others is in
+    /// neither.
     private func answer(_ summary: ScanSummary) {
-        let moved = summary.outcomes.filter { $0.level == .moved }
+        let moved = summary.counted
         let text: String
         if summary.failed > 0 {
             text = summary.failed == 1
@@ -769,16 +771,18 @@ final class AppState: ObservableObject {
         // Once per pass, not per window: a pass after a display change moves
         // twenty windows, and twenty redraws of the Stats tab say nothing more.
         defer {
-            if summary.outcomes.contains(where: { $0.kind != nil && $0.visible }) {
+            if !summary.counted.isEmpty {
                 usageDays = usageHistory.allDays
             }
         }
-        for outcome in summary.outcomes {
-            if let kind = outcome.kind, outcome.visible {
+        for outcome in summary.counted {
+            if let kind = outcome.kind {
                 usageJournal?.record(kind)
                 usageHistory.record(kind)
                 MilestoneNotifier.shared.windowMoved(kind)
             }
+        }
+        for outcome in summary.outcomes {
             if outcome.logOncePerSession {
                 let key = "\(outcome.app)|\(outcome.detail)"
                 guard noticesLogged.insert(key).inserted else { continue }

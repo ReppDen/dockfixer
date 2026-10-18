@@ -184,10 +184,6 @@ struct StatsView: View {
                          value: StatsFormat.windows(data.windows),
                          unit: data.windows == 1 ? "window" : "windows")
                 }
-                if DebugView.isAvailable {
-                    breakdown(data)
-                        .padding(.horizontal, Self.inset)
-                }
             }
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
@@ -212,37 +208,6 @@ struct StatsView: View {
         guard data.firstDay != nil, !data.isEmpty else { return "DockFixer hasn't moved any windows yet." }
         let days = data.daysWithDockFixer
         return days == 1 ? "Today, DockFixer has" : "In \(days.formatted()) days, DockFixer has"
-    }
-
-    /// DEV ONLY. The two cards taken apart, in one row of five: the seconds
-    /// and the windows again, then each kind of move with its count and the
-    /// seconds `Savings` gives it, which is all the cards are made of. A
-    /// release never shows it.
-    private func breakdown(_ data: StatsData) -> some View {
-        let t = data.totals
-        let columns = [
-            "\(StatsFormat.shortTime(data.seconds)) total",
-            "\(data.windows) windows",
-            "pushedOut \(t.pushedOut) × \(Self.coefficient(Savings.pushedOut))",
-            "stuck \(t.stuck) × \(Self.coefficient(Savings.stuck))",
-            "acrossDisplays \(t.acrossDisplays) × \(Self.coefficient(Savings.acrossDisplays))",
-        ]
-        return HStack(spacing: 12) {
-            ForEach(columns, id: \.self) { column in
-                Text(column)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .font(.system(size: 11))
-        .monospacedDigit()
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
-    }
-
-    /// `3.5 s`, `1 s`: the seconds one move of a kind is taken to save.
-    private static func coefficient(_ seconds: Double) -> String {
-        seconds == seconds.rounded() ? "\(Int(seconds)) s" : "\(seconds) s"
     }
 
     /// The verb that finishes the lead line, then the number large and its

@@ -229,6 +229,22 @@ func usageNotificationEvent(_ t: TestRun) {
     t.expect(UUID(uuidString: shownObject["uuid"] as? String ?? "") != nil, "a fresh UUID by default")
 }
 
+/// The Buy Me a Coffee click as sent: the version, and nothing else.
+func usageBuyMeACoffeeEvent(_ t: TestRun) {
+    let data = UsageReport.buyMeACoffeeEvent(installID: "abc", version: "1.0.0", apiKey: "phc_test",
+                                             uuid: "u-2", at: utc("2026-10-19T09:30:00Z"))
+    let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+    let properties = object["properties"] as? [String: Any] ?? [:]
+
+    t.expect(object["event"] as? String == "buy_me_a_coffee", "event name")
+    t.expect(object["distinct_id"] as? String == "abc", "the same install ID as the day event")
+    t.expect(object["uuid"] as? String == "u-2", "the event ID given")
+    t.expect(object["timestamp"] as? String == "2026-10-19T09:30:00Z", "the moment, in UTC: \(object["timestamp"] ?? "-")")
+    t.expect(Set(properties.keys) == ["version"], "nothing else is sent: \(properties.keys.sorted())")
+    t.expect(Set(object.keys) == ["api_key", "event", "distinct_id", "uuid", "timestamp", "properties"],
+             "nothing else at the top level: \(object.keys.sorted())")
+}
+
 /// A notification event goes out at once; one that fails waits for the next
 /// flush, goes before the days, and the queue is capped.
 @MainActor
@@ -250,8 +266,11 @@ func usageNotificationRetry(_ t: TestRun) {
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         let properties = object["properties"] as? [String: Any] ?? [:]
         let name = object["event"] as? String ?? "?"
-        fake.sent.append(name == "notification" ? "\(properties["action"] ?? "?") \(properties["hours"] ?? "?")"
-                                                : "day \(properties["day"] ?? "?")")
+        switch name {
+        case "notification": fake.sent.append("\(properties["action"] ?? "?") \(properties["hours"] ?? "?")")
+        case "day": fake.sent.append("day \(properties["day"] ?? "?")")
+        default: fake.sent.append(name)
+        }
         return .accepted
     }
     func wait(_ work: @escaping @MainActor () async -> Void) {
@@ -265,25 +284,28 @@ func usageNotificationRetry(_ t: TestRun) {
 
     wait { await reporter.sendNotification(.shown, hours: 1) }
     t.expect(fake.sent == ["shown 1"], "sent at once: \(fake.sent)")
-    t.expect(reporter.pendingNotificationCount == 0, "nothing waits")
+    t.expect(reporter.pendingEventCount == 0, "nothing waits")
 
     fake.failing = true
     wait { await reporter.sendNotification(.clicked, hours: 1) }
-    t.expect(reporter.pendingNotificationCount == 1, "a failed one waits")
+    t.expect(reporter.pendingEventCount == 1, "a failed one waits")
     t.expect(log.entries.contains { $0.detail.hasPrefix("usage: notification clicked (1 h) not sent") }, "and says so")
+    wait { await reporter.sendBuyMeACoffee() }
+    t.expect(reporter.pendingEventCount == 2, "a failed Buy Me a Coffee click waits in the same queue")
 
     journal.record(.pushedOut, at: utc("2026-10-13T10:00:00Z"))
     fake.failing = false
     wait { await reporter.flush(now: utc("2026-10-14T09:00:00Z")) }
-    t.expect(fake.sent == ["shown 1", "clicked 1", "day 2026-10-13"], "the waiting one goes first, then the days: \(fake.sent)")
-    t.expect(reporter.pendingNotificationCount == 0, "and is forgotten once sent")
+    t.expect(fake.sent == ["shown 1", "clicked 1", "buy_me_a_coffee", "day 2026-10-13"],
+             "the waiting ones go first, in order, then the days: \(fake.sent)")
+    t.expect(reporter.pendingEventCount == 0, "and is forgotten once sent")
 
     fake.failing = true
-    for hours in 1...(UsageReporter.maxPendingNotifications + 5) {
+    for hours in 1...(UsageReporter.maxPendingEvents + 5) {
         wait { await reporter.sendNotification(.shown, hours: hours) }
     }
-    t.expect(reporter.pendingNotificationCount == UsageReporter.maxPendingNotifications,
-             "the queue is capped: \(reporter.pendingNotificationCount)")
+    t.expect(reporter.pendingEventCount == UsageReporter.maxPendingEvents,
+             "the queue is capped: \(reporter.pendingEventCount)")
     t.expect(log.entries.contains { $0.detail == "usage: notification shown (1 h) dropped — too many waiting" },
              "the oldest is dropped, and logged")
 }

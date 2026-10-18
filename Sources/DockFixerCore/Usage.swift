@@ -9,11 +9,13 @@ import Foundation
 /// whole of what leaves the machine is built in `UsageReport.event`, and the
 /// README shows it.
 ///
-/// One more event goes out under the same switch, the moment it happens: a
-/// "DockFixer saved you N hours" notification was shown, or clicked. Built
-/// in `UsageReport.notificationEvent`. Those come a few times a year at most,
-/// and the one question they answer — does anybody click them — is better
-/// answered by each one than by a daily sum.
+/// Two more events go out under the same switch, the moment they happen: a
+/// "DockFixer saved you N hours" notification was shown, or clicked, built in
+/// `UsageReport.notificationEvent`; and the Buy Me a Coffee button was
+/// pressed, built in `UsageReport.buyMeACoffeeEvent`. Both are rare, and the
+/// one question each answers — does anybody click it — is better answered by
+/// each click than by a daily sum. What happens on the page after the click
+/// is Buy Me a Coffee's to count, not ours.
 ///
 /// The only other thing that goes to the same project is a bug report, and
 /// only when someone writes one and presses Send: see `BugReport.swift` for
@@ -277,6 +279,25 @@ public enum UsageReport {
         ]
         return (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
     }
+
+    /// The Buy Me a Coffee button was pressed, as JSON. Built like the
+    /// notification event: the same install ID, so a click can be read
+    /// beside the days of use before it, and a random event ID made once.
+    public static func buyMeACoffeeEvent(installID: String, version: String, apiKey: String,
+                                         uuid: String = UUID().uuidString.lowercased(),
+                                         at date: Date = Date()) -> Data {
+        let object: [String: Any] = [
+            "api_key": apiKey,
+            "event": "buy_me_a_coffee",
+            "distinct_id": installID,
+            "uuid": uuid,
+            "timestamp": moment.string(from: date),
+            "properties": [
+                "version": version,
+            ] as [String: Any],
+        ]
+        return (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+    }
 }
 
 /// Sends the finished days, in order, and forgets each one as it is accepted.
@@ -309,17 +330,18 @@ public final class UsageReporter {
     /// wake are the retries, and a launch straight after a wake is not two.
     private let retryAfter: TimeInterval = 10 * 60
 
-    /// Notification events that could not be sent, oldest first, each built
-    /// once so a retry carries the same ID and time. Retried by every flush —
-    /// on launch, on wake, once an hour — before the days.
+    /// Notification and Buy Me a Coffee events that could not be sent, oldest
+    /// first, each built once so a retry carries the same ID and time.
+    /// Retried by every flush — on launch, on wake, once an hour — before the
+    /// days.
     ///
     /// In memory only, on purpose. There are a few such events a year; a quit
     /// while offline losing one costs little, where a file would need a format,
     /// pruning, and erasing with the switch, as the journal has. Capped, so
     /// that nothing can pile up should the server refuse them for good.
-    private var pendingNotifications: [(data: Data, what: String)] = []
-    public static let maxPendingNotifications = 50
-    public var pendingNotificationCount: Int { pendingNotifications.count }
+    private var pendingEvents: [(data: Data, what: String)] = []
+    public static let maxPendingEvents = 50
+    public var pendingEventCount: Int { pendingEvents.count }
 
     /// How many finished days wait to be sent at most. A machine behind a
     /// firewall that never lets the request through would otherwise keep
@@ -344,10 +366,10 @@ public final class UsageReporter {
         isFlushing = true
         defer { isFlushing = false }
 
-        while let first = pendingNotifications.first {
+        while let first = pendingEvents.first {
             switch await send(first.data) {
             case .accepted:
-                pendingNotifications.removeFirst()
+                pendingEvents.removeFirst()
                 log.info("usage: \(first.what) sent on retry")
             case .failed(let why):
                 lastFailure = now
@@ -383,14 +405,24 @@ public final class UsageReporter {
     public func sendNotification(_ action: UsageReport.NotificationAction, hours: Int, at date: Date = Date()) async {
         let data = UsageReport.notificationEvent(action: action, hours: hours, installID: installID,
                                                  version: version, apiKey: apiKey, at: date)
-        let what = "notification \(action.rawValue) (\(hours) h)"
+        await sendNow(data, what: "notification \(action.rawValue) (\(hours) h)")
+    }
+
+    /// Sends a Buy Me a Coffee click now, and keeps it for the next flush if
+    /// it does not go through.
+    public func sendBuyMeACoffee(at date: Date = Date()) async {
+        let data = UsageReport.buyMeACoffeeEvent(installID: installID, version: version, apiKey: apiKey, at: date)
+        await sendNow(data, what: "Buy Me a Coffee click")
+    }
+
+    private func sendNow(_ data: Data, what: String) async {
         switch await send(data) {
         case .accepted:
             log.info("usage: \(what) sent")
         case .failed(let why):
-            pendingNotifications.append((data, what))
-            if pendingNotifications.count > Self.maxPendingNotifications {
-                let dropped = pendingNotifications.removeFirst()
+            pendingEvents.append((data, what))
+            if pendingEvents.count > Self.maxPendingEvents {
+                let dropped = pendingEvents.removeFirst()
                 log.info("usage: \(dropped.what) dropped — too many waiting")
             }
             log.info("usage: \(what) not sent: \(why) — will try again later")

@@ -405,6 +405,15 @@ final class AppState: ObservableObject {
 
     // MARK: - Actions
 
+    /// Counted as a click on the button, whatever happens on the page after:
+    /// a payment is Buy Me a Coffee's to count. Sent only while the
+    /// statistics switch is on, as every other event.
+    func buyMeACoffeeClicked() {
+        log.info("Buy Me a Coffee opened")
+        guard let usage else { return }
+        Task { await usage.sendBuyMeACoffee() }
+    }
+
     func moveWindows() {
         // A press that changes nothing still needs an answer, or the button
         // looks broken. Automatic passes that change nothing stay quiet.

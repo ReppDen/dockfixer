@@ -99,7 +99,7 @@ enum Links {
     /// hidden: sending people there needs no permission, where moving the Dock
     /// from here would need Automation access to System Events.
     static let dockSettings = URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension")!
-    static let buyMeACoffee: URL? = nil
+    static let buyMeACoffee = URL(string: "https://buymeacoffee.com/reppden")!
 
     /// A new issue with the facts a report always needs already filled in, so
     /// nobody has to be asked for them afterwards. The bug report form's way
@@ -485,12 +485,8 @@ struct ContentView: View {
     /// may be hidden.
     private var footer: some View {
         HStack(spacing: 6) {
-            // Hidden in a release until there is a page to send people to;
-            // a development build shows it so the row can be judged.
-            if Links.buyMeACoffee != nil || DebugView.isAvailable {
-                DonateButton()
-                    .padding(.trailing, 6)
-            }
+            DonateButton()
+                .padding(.trailing, 6)
             FixNowControl()
             Spacer(minLength: 12)
             Button { state.quit() } label: {
@@ -603,19 +599,15 @@ private struct TabButton: View {
     }
 }
 
-/// "Buy Me a Coffee", in the warm style. On the Stats tab as well as at the
-/// foot of the window, so it is one view.
+/// "Buy Me a Coffee", in the warm style, at the foot of the window.
 struct DonateButton: View {
+    @EnvironmentObject private var state: AppState
     @Environment(\.openURL) private var openURL
 
     var body: some View {
         Button {
-            if let url = Links.buyMeACoffee {
-                openURL(url)
-            } else {
-                // Only a development build shows the button without a page.
-                AppState.current?.log.info("Buy Me a Coffee: no page yet")
-            }
+            state.buyMeACoffeeClicked()
+            openURL(Links.buyMeACoffee)
         } label: {
             Label("Buy Me a Coffee", systemImage: "cup.and.saucer.fill")
         }

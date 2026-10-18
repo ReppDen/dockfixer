@@ -79,7 +79,7 @@ private struct AccessibilityStep: View {
                    text: "To move windows for you, DockFixer needs Accessibility access.") {
             AppIconView(size: 72)
         } buttons: {
-            Button("Open Accessibility Settings") { state.requestAccessibility() }
+            Button("Open Accessibility Settings") { state.openAccessibilitySettings() }
                 .buttonStyle(SoftButtonStyle(emphasised: true))
                 .keyboardShortcut(.defaultAction)
         }

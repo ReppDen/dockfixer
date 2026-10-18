@@ -390,10 +390,9 @@ final class AppState: ObservableObject {
         if isTrusted {
             turnOnLaunchAtLoginOnce()
         } else {
-            log.info("Accessibility access not granted yet; approve DockFixer in the system prompt, or press Grant")
-            // Ask straight away rather than at the first button press: the grant
-            // has to be in place before anything useful can happen.
-            WindowScanner.requestTrust()
+            // The system prompt itself is asked for by the app delegate, once
+            // the window is up: see `askForAccessibility`.
+            log.info("Accessibility access not granted yet; approve DockFixer in the system prompt or in System Settings")
         }
         updateWatchers()
 
@@ -413,11 +412,11 @@ final class AppState: ObservableObject {
         run(trigger: "Fix Windows Now")
     }
 
-    func requestAccessibility() {
-        WindowScanner.requestTrust()
-        log.info("Accessibility prompt requested — grant DockFixer in System Settings, then come back")
-        // The System Settings pane, in case the prompt was dismissed earlier and
-        // will not appear again.
+    /// The onboarding button. Opens the pane and nothing more: the system
+    /// prompt was already shown at launch, and asking for it again would only
+    /// queue another dialog behind System Settings.
+    func openAccessibilitySettings() {
+        log.info("opening Accessibility settings — grant DockFixer there, then come back")
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
@@ -641,7 +640,8 @@ final class AppState: ObservableObject {
         guard isTrusted else {
             log.add(level: .fail, app: "DockFixer", title: "",
                     detail: "cannot scan windows without Accessibility access")
-            requestAccessibility()
+            // Only logged. A pass starts on its own, on a Dock or display
+            // change, and must not throw System Settings at the user for it.
             return
         }
 

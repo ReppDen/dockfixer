@@ -42,6 +42,7 @@ struct DockFixerApp: App {
         // rather than showing something obviously wrong. `.contentSize` hands the
         // question to the one part of the system that has the final say anyway.
         .windowResizability(.contentSize)
+        .defaultPosition(.center)
 
         // The menu-bar icon (`StatusItemController`, AppKit, not a scene) is
         // what makes the app usable once the window is closed — it has to stay
@@ -161,6 +162,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.showMainWindow(activate: false)
         }
 
+        if !WindowScanner.isTrusted {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                MainActor.assumeIsolated { self.askForAccessibility() }
+            }
+        }
+
         // Started by launchd at login and already granted access: there is
         // nothing to say and nothing to do, so it should come up quietly in the
         // menu bar instead. But a login launch is not directly observable —
@@ -168,6 +175,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // only once nothing has claimed it.
         guard LoginItem.isEnabled, WindowScanner.isTrusted else { return }
         scheduleLoginHide()
+    }
+
+    /// Shows the system's Accessibility prompt, once per launch and nowhere
+    /// else: macOS does not merge these prompts but queues one dialog per
+    /// call, so asking again on a button press or on every Dock change left a
+    /// stack of them to click through.
+    ///
+    /// Asked only once the window is up. The prompt is another process's
+    /// window, and of two windows the one shown last is on top; asked any
+    /// earlier, the onboarding window came up over it.
+    @MainActor
+    private func askForAccessibility() {
+        WindowScanner.requestTrust()
     }
 
     /// Hides the window shortly after launch unless something activated the app.

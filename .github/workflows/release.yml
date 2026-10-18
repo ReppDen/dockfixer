@@ -2,42 +2,33 @@ name: Release
 
 on:
   push:
-    # Plain versions only. A tag like v0.2.0-beta would be published as the
-    # latest release, and the latest release is what every installed copy
-    # updates to.
+    # Plain versions only: every published release goes to all users within a day.
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
 
 permissions:
-  contents: write
+  contents: read
 
-# Two tags pushed close together must not race each other to the tap.
 concurrency:
   group: release
   cancel-in-progress: false
 
 env:
-  # The certificate every release is signed with. macOS ties the Accessibility
-  # grant to the designated requirement, which for a self-signed certificate is
-  # its SHA-1: sign one release with anything else and every user who updates
-  # to it silently loses the grant. So the build is checked against this
-  # fingerprint, not just signed.
+  # Never change: users' Accessibility grant is tied to this certificate.
   RELEASE_CERT_SHA1: 7ee1e6b6e630e61adfdc1fbdb2c904cc99812e81
   SIGN_IDENTITY: DockFixer Release
-  # Where the app looks for updates. Only release builds carry it: a build
-  # from source has no feed and never replaces itself with a release, whose
-  # different signature would cost it the Accessibility grant.
   FEED_URL: https://github.com/ReppDen/dockfixer/releases/latest/download/appcast.xml
-  # Sparkle's command-line tools, for signing the archive. The same version as
-  # the framework in Package.swift.
+  # Must match the Sparkle version in Package.swift.
   SPARKLE_VERSION: 2.10.0
   SPARKLE_SHA256: c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c
 
 jobs:
-  release:
+  build:
     runs-on: macos-26
+    outputs:
+      file: ${{ steps.sum.outputs.file }}
+      version: ${{ steps.sum.outputs.version }}
+      sha: ${{ steps.sum.outputs.sha }}
     steps:
-      # Actions are pinned to commits: this job holds the release signing key
-      # and a token that can publish releases. Dependabot keeps the pins fresh.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -46,9 +37,6 @@ jobs:
         run: make test
 
       - name: Import the signing certificate
-        # A keychain of its own on the runner, unlocked, holding only the
-        # release identity. The key is imported non-extractable, and the
-        # keychain is deleted as soon as the app is signed.
         env:
           P12: ${{ secrets.RELEASE_CERT_P12 }}
           P12_PASSWORD: ${{ secrets.RELEASE_CERT_PASSWORD }}
@@ -66,9 +54,6 @@ jobs:
           security find-identity -p codesigning "$KEYCHAIN"
 
       - name: Package
-        # The tag drives the version so the bundle and the release agree. The
-        # PostHog key is a repository secret rather than a line in the Makefile,
-        # so a fork's release sends nothing to this project unless it sets its own.
         env:
           USAGE_KEY: ${{ secrets.USAGE_KEY }}
         run: |
@@ -90,20 +75,6 @@ jobs:
           FEED="$(/usr/libexec/PlistBuddy -c 'Print SUFeedURL' "$APP/Contents/Info.plist")"
           [ "$FEED" = "$FEED_URL" ] || { echo "SUFeedURL is '$FEED'"; exit 1; }
 
-      - name: Launch it
-        # A release that crashes on launch would still reach everyone within a
-        # day, and an app that cannot run cannot update itself out of it. So
-        # it has to stay up for a while first. Without the Accessibility grant
-        # it shows its first-run window and waits, which is enough to know the
-        # binary, the frameworks and the signature all load.
-        run: |
-          build/DockFixer.app/Contents/MacOS/DockFixer &
-          PID=$!
-          sleep 10
-          kill -0 "$PID" || { echo "DockFixer exited within 10 seconds"; cat ~/Library/Logs/DockFixer/dockfixer.log || true; exit 1; }
-          kill "$PID"
-          cat ~/Library/Logs/DockFixer/dockfixer.log
-
       - name: Sign the update and write the feed
         id: sum
         env:
@@ -124,54 +95,96 @@ jobs:
             > build/appcast.xml
           rm "$RUNNER_TEMP/ed.key"
           cat build/appcast.xml
-          # The signature has to verify with the key inside the app, or no
-          # installed copy will ever take another update.
           swift Scripts/verify-update.swift "$FILE" build/appcast.xml build/DockFixer.app
-          # The same archive under a name that never changes, so the README
-          # can link to releases/latest/download/DockFixer.zip.
+          # The README's download link points at this name.
           cp "$FILE" build/DockFixer.zip
           echo "file=$FILE" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "sha=$(shasum -a 256 "$FILE" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
-      # The feed goes up with the release, and the app finds it through
-      # GitHub's latest-release redirect: publishing the release is what makes
-      # every installed copy update to it.
-      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          files: |
+          name: release
+          path: |
             ${{ steps.sum.outputs.file }}
             build/DockFixer.zip
             build/appcast.xml
-          # Lists the pull requests merged since the previous tag, under the
-          # install instructions.
+          if-no-files-found: error
+
+  launch:
+    needs: build
+    strategy:
+      matrix:
+        # xcode-27 is macOS 27.
+        runner: [macos-14, macos-15-intel, macos-26, xcode-27]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: build
+
+      - name: Launch it
+        run: |
+          sw_vers
+          echo "machine: $(uname -m)"
+          ditto -x -k build/DockFixer.zip "$RUNNER_TEMP/app"
+          "$RUNNER_TEMP/app/DockFixer.app/Contents/MacOS/DockFixer" &
+          PID=$!
+          sleep 10
+          kill -0 "$PID" || { echo "DockFixer exited within 10 seconds"; cat ~/Library/Logs/DockFixer/dockfixer.log || true; exit 1; }
+          kill "$PID"
+          cat ~/Library/Logs/DockFixer/dockfixer.log
+
+  publish:
+    needs: [build, launch]
+    runs-on: macos-26
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: build
+
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          files: |
+            ${{ needs.build.outputs.file }}
+            build/DockFixer.zip
+            build/appcast.xml
           generate_release_notes: true
           body: |
-            SHA-256 of both zips: `${{ steps.sum.outputs.sha }}`
+            Requires macOS 14 Sonoma or later, Apple silicon or Intel.
 
-            **Homebrew**
+            **With Homebrew (recommended)**
 
             ```sh
             brew install reppden/tap/dockfixer
             ```
 
-            **Download** `DockFixer.zip` below, unzip it and move DockFixer.app
-            to Applications. DockFixer is signed with the project's own
-            certificate but not notarized by Apple, so the first time macOS
-            refuses to open it: go to System Settings → Privacy & Security and
-            click **Open Anyway**, or run
+            **Or download it yourself**
 
-            ```sh
-            xattr -dr com.apple.quarantine /Applications/DockFixer.app
-            ```
+            1. Download `DockFixer.zip` below.
+            2. Unzip it.
+            3. Move `DockFixer.app` to Applications.
 
-            Then grant Accessibility access when DockFixer asks. Installed
-            copies update themselves; the access stays.
+            The first time you open DockFixer, macOS will not open it and says
+            it cannot check the app. This is normal for a free app that is not
+            in the App Store. Allow it once:
+
+            1. Close the message.
+            2. Open **System Settings → Privacy & Security**.
+            3. Scroll down and click **Open Anyway** next to the line about DockFixer.
+            4. Confirm.
+
+            SHA-256 of both zips: `${{ needs.build.outputs.sha }}`
 
       - name: Update the Homebrew cask
-        # A deploy key with write access to the tap and nothing else. GitHub's
-        # host keys come from its API over HTTPS rather than being trusted on
-        # first sight.
         env:
           TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
         run: |
@@ -182,17 +195,16 @@ jobs:
           export GIT_SSH_COMMAND="ssh -i ~/.ssh/tap -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
           git clone git@github.com:ReppDen/homebrew-tap.git "$RUNNER_TEMP/tap"
           mkdir -p "$RUNNER_TEMP/tap/Casks"
-          Scripts/cask.sh "${{ steps.sum.outputs.version }}" "${{ steps.sum.outputs.sha }}" \
+          Scripts/cask.sh "${{ needs.build.outputs.version }}" "${{ needs.build.outputs.sha }}" \
             > "$RUNNER_TEMP/tap/Casks/dockfixer.rb"
           cd "$RUNNER_TEMP/tap"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Casks/dockfixer.rb
-          # A re-run of the same tag has nothing new to say.
           if git diff --cached --quiet; then
-            echo "cask already at ${{ steps.sum.outputs.version }}"
+            echo "cask already at ${{ needs.build.outputs.version }}"
           else
-            git commit -m "dockfixer ${{ steps.sum.outputs.version }}"
+            git commit -m "dockfixer ${{ needs.build.outputs.version }}"
             git push
           fi
           rm ~/.ssh/tap

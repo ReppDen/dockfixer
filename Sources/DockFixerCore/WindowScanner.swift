@@ -489,13 +489,22 @@ public final class WindowScanner: Sendable {
                 }
             }
         }
+        // Every move gets a verdict, the counted ones too: reading which
+        // window a number on the Stats tab came from by elimination, from the
+        // list of the ones that did not count, was how the first question
+        // about it had to be answered.
         if debugDetail {
-            for entry in moved where !summary.outcomes[entry.outcome].visible {
+            for entry in moved {
+                let detail: String
+                if summary.outcomes[entry.outcome].visible {
+                    detail = "counted as \(entry.plan.kind.rawValue) (\(Savings.seconds(per: entry.plan.kind).formatted()) s)"
+                } else if entry.plan.depth == .max {
+                    detail = "not counted — not on screen"
+                } else {
+                    detail = "not counted — covered by the windows in front of it"
+                }
                 summary.outcomes.append(WindowOutcome(
-                    app: entry.plan.app.name, title: entry.plan.title, level: .debug,
-                    detail: entry.plan.depth == .max
-                        ? "not counted — not on screen"
-                        : "not counted — covered by the windows in front of it"))
+                    app: entry.plan.app.name, title: entry.plan.title, level: .debug, detail: detail))
             }
         }
         return summary

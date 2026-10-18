@@ -43,7 +43,6 @@ func bugReportEvent(_ t: TestRun) {
     t.expect(properties["displays"] as? String == "Built-in, Dock at the bottom", "displays")
     t.expect(properties["log"] as? String == "[12:00:00.000] INFO  ready", "log")
     t.expect(properties["logAttached"] as? Bool == true, "logAttached")
-    t.expect(properties["$geoip_disable"] as? Bool == true, "$geoip_disable")
     t.expect(properties["$process_person_profile"] as? Bool == false, "$process_person_profile")
 
     report.email = "   "

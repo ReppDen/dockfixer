@@ -233,8 +233,6 @@ public enum UsageReport {
                 "pushedOut": day.pushedOut,
                 "stuck": day.stuck,
                 "acrossDisplays": day.acrossDisplays,
-                // No country or city on the server side either.
-                "$geoip_disable": true,
             ] as [String: Any],
         ]
         return (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
@@ -275,7 +273,6 @@ public enum UsageReport {
                 "action": action.rawValue,
                 "hours": hours,
                 "version": version,
-                "$geoip_disable": true,
             ] as [String: Any],
         ]
         return (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()

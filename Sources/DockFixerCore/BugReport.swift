@@ -55,8 +55,7 @@ public struct BugReport: Sendable {
     /// `distinct_id` is a random ID made for this one report and not kept, so
     /// a report cannot be put next to the usage statistics of the same Mac.
     /// `$process_person_profile: false` stops PostHog
-    /// from making a person out of it either way, and `$geoip_disable` keeps
-    /// the country and city off it, as with the daily event.
+    /// from making a person out of it either way.
     public func event(distinctID: String, eventID: String, timestamp: Date, apiKey: String) -> Data {
         var properties: [String: Any] = [
             "message": message,
@@ -65,7 +64,6 @@ public struct BugReport: Sendable {
             "settings": settings,
             "displays": displays,
             "logAttached": log != nil,
-            "$geoip_disable": true,
             "$process_person_profile": false,
         ]
         if let email = email?.trimmingCharacters(in: .whitespacesAndNewlines), !email.isEmpty {

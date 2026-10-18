@@ -95,8 +95,7 @@ func usageEvent(_ t: TestRun) {
     t.expect(properties["pushedOut"] as? Int == 11 && properties["stuck"] as? Int == 40
              && properties["acrossDisplays"] as? Int == 3, "counts are numbers: \(properties)")
     t.expect(properties["version"] as? String == "0.1.0" && properties["day"] as? String == "2026-10-13", "version and day")
-    t.expect(properties["$geoip_disable"] as? Bool == true, "geo lookup is off")
-    t.expect(Set(properties.keys) == ["version", "day", "pushedOut", "stuck", "acrossDisplays", "$geoip_disable"],
+    t.expect(Set(properties.keys) == ["version", "day", "pushedOut", "stuck", "acrossDisplays"],
              "nothing else is sent: \(properties.keys.sorted())")
     t.expect(Set(object.keys) == ["api_key", "event", "distinct_id", "uuid", "timestamp", "properties"],
              "nothing else is sent at the top level: \(object.keys.sorted())")
@@ -219,8 +218,7 @@ func usageNotificationEvent(_ t: TestRun) {
     t.expect(object["timestamp"] as? String == "2026-10-16T14:05:09Z", "the moment, in UTC: \(object["timestamp"] ?? "-")")
     t.expect(properties["action"] as? String == "clicked", "the action")
     t.expect(properties["hours"] as? Int == 3, "the milestone is a number: \(properties)")
-    t.expect(properties["$geoip_disable"] as? Bool == true, "geo lookup is off")
-    t.expect(Set(properties.keys) == ["action", "hours", "version", "$geoip_disable"],
+    t.expect(Set(properties.keys) == ["action", "hours", "version"],
              "nothing else is sent: \(properties.keys.sorted())")
     t.expect(Set(object.keys) == ["api_key", "event", "distinct_id", "uuid", "timestamp", "properties"],
              "nothing else at the top level: \(object.keys.sorted())")

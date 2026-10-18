@@ -1,5 +1,5 @@
 import AppKit
-import ApplicationServices
+@preconcurrency import ApplicationServices
 
 /// What happened to one window during a pass.
 public struct WindowOutcome: Sendable {

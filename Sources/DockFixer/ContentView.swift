@@ -339,17 +339,15 @@ struct ContentView: View {
                             detail: "Open DockFixer again to show this window or quit.")
             }
             Self.row("Updates") { UpdatesRow(updater: state.updater) }
-            Self.row("Statistics") {
-                // What exactly goes out is in the README, linked from
-                // there to UsageReport.event; the switch only has to say
-                // what it is. The Stats tab does not depend on it: that
-                // history never leaves the Mac.
-                Self.option(isOn: $state.sendUsageStatistics,
-                            title: "Send usage statistics")
-            }
             Self.row("Help") { help }
-            // Last, under Help: the version is what a bug report needs
-            // first, and selectable so it can be copied into one.
+            // Under Help, out of the way of the settings people come here
+            // for. What exactly goes out is in the README, linked from
+            // there to UsageReport.event; the line only has to say what it
+            // is. The Stats tab does not depend on it: that history never
+            // leaves the Mac.
+            Self.row("Statistics") { statistics }
+            // Last: the version is what a bug report needs first, and
+            // selectable so it can be copied into one.
             Self.row("Version") {
                 Text(Self.version)
                     .foregroundStyle(.secondary)
@@ -474,6 +472,47 @@ struct ContentView: View {
                 Label { Text("GitHub") } icon: { Self.githubMark }
             }
             .buttonStyle(SoftButtonStyle())
+        }
+    }
+
+    /// A sentence rather than a checkbox: clicking it turns the statistics
+    /// off, after asking, or back on. See `StatisticsSwitch`.
+    private var statistics: some View {
+        Button {
+            switch StatisticsSwitch.click(sending: state.sendUsageStatistics) {
+            case .enable:
+                state.sendUsageStatistics = true
+            case .askBeforeDisabling:
+                confirmDisablingStatistics()
+            }
+        } label: {
+            Text(StatisticsSwitch.sentence(sending: state.sendUsageStatistics))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// An NSAlert rather than SwiftUI's `.alert`, which does not let the
+    /// first button be the default one while the other stays plain: Keep is
+    /// added first, so it is blue and takes Return; Disable is grey. A sheet
+    /// on the window the line was clicked in, so it cannot get lost behind it.
+    private func confirmDisablingStatistics() {
+        let alert = NSAlert()
+        alert.messageText = "Are you sure you want to disable anonymous statistics?"
+        alert.informativeText = "It helps to keep track of bugs, ship improvements fast "
+            + "and keep the quality of the app high."
+        alert.addButton(withTitle: "Keep")
+        alert.addButton(withTitle: "Disable")
+        let disable = { (response: NSApplication.ModalResponse) in
+            if response == .alertSecondButtonReturn {
+                state.sendUsageStatistics = false
+            }
+        }
+        if let window = NSApp.keyWindow {
+            alert.beginSheetModal(for: window, completionHandler: disable)
+        } else {
+            disable(alert.runModal())
         }
     }
 
@@ -609,7 +648,7 @@ struct DonateButton: View {
             state.buyMeACoffeeClicked()
             openURL(Links.buyMeACoffee)
         } label: {
-            Label("Buy Me a Coffee", systemImage: "cup.and.saucer.fill")
+            Label(state.donateLabel.title, systemImage: state.donateLabel.symbol)
         }
         .buttonStyle(DonateButtonStyle())
     }

@@ -340,6 +340,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for window in NSApp.windows where Self.isMainWindow(window) {
             window.orderOut(nil)
         }
+        // The window survives hidden, and its views with it, so the next
+        // opening shows other words only if they are drawn here.
+        MainActor.assumeIsolated { AppState.current?.donateLabel = .random() }
         retreatToMenuBar()
     }
 

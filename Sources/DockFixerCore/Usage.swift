@@ -12,7 +12,8 @@ import Foundation
 /// Two more events go out under the same switch, the moment they happen: a
 /// "DockFixer saved you N hours" notification was shown, or clicked, built in
 /// `UsageReport.notificationEvent`; and the Buy Me a Coffee button was
-/// pressed, built in `UsageReport.buyMeACoffeeEvent`. Both are rare, and the
+/// pressed, with which of its words it showed (`DonateLabel`), built in
+/// `UsageReport.buyMeACoffeeEvent`. Both are rare, and the
 /// one question each answers — does anybody click it — is better answered by
 /// each click than by a daily sum. What happens on the page after the click
 /// is Buy Me a Coffee's to count, not ours.
@@ -280,10 +281,12 @@ public enum UsageReport {
         return (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
     }
 
-    /// The Buy Me a Coffee button was pressed, as JSON. Built like the
-    /// notification event: the same install ID, so a click can be read
-    /// beside the days of use before it, and a random event ID made once.
-    public static func buyMeACoffeeEvent(installID: String, version: String, apiKey: String,
+    /// The Buy Me a Coffee button was pressed, as JSON, with the words it
+    /// showed. Built like the notification event: the same install ID, so a
+    /// click can be read beside the days of use before it, and a random
+    /// event ID made once. The event keeps its old name whatever the words,
+    /// so the clicks before the words changed stay in the same series.
+    public static func buyMeACoffeeEvent(label: DonateLabel, installID: String, version: String, apiKey: String,
                                          uuid: String = UUID().uuidString.lowercased(),
                                          at date: Date = Date()) -> Data {
         let object: [String: Any] = [
@@ -293,6 +296,7 @@ public enum UsageReport {
             "uuid": uuid,
             "timestamp": moment.string(from: date),
             "properties": [
+                "label": label.rawValue,
                 "version": version,
             ] as [String: Any],
         ]
@@ -410,9 +414,10 @@ public final class UsageReporter {
 
     /// Sends a Buy Me a Coffee click now, and keeps it for the next flush if
     /// it does not go through.
-    public func sendBuyMeACoffee(at date: Date = Date()) async {
-        let data = UsageReport.buyMeACoffeeEvent(installID: installID, version: version, apiKey: apiKey, at: date)
-        await sendNow(data, what: "Buy Me a Coffee click")
+    public func sendBuyMeACoffee(label: DonateLabel, at date: Date = Date()) async {
+        let data = UsageReport.buyMeACoffeeEvent(label: label, installID: installID, version: version,
+                                                 apiKey: apiKey, at: date)
+        await sendNow(data, what: "Buy Me a Coffee click (\(label.rawValue))")
     }
 
     private func sendNow(_ data: Data, what: String) async {
@@ -481,5 +486,73 @@ public enum PostHog {
         } catch {
             return .error(error.localizedDescription)
         }
+    }
+}
+
+/// The words on the donate button. One is picked at random each time the
+/// window is put away, so the next opening may show another, and the click
+/// carries which one it was: the statistics then tell which words are
+/// clicked most. Picked uniformly, each is shown about as often as the
+/// others, so the clicks alone compare them and nothing is sent on showing.
+///
+/// The raw value is what is sent, and it names the words rather than their
+/// place in the list, so it keeps its meaning when one is added or removed.
+/// Change the words of a case and give it a new name, or the old clicks
+/// count for the new words.
+public enum DonateLabel: String, CaseIterable, Sendable {
+    case coffee, support, thanks, tip, author, project
+
+    public var title: String {
+        switch self {
+        case .coffee: return "Buy Me a Coffee"
+        case .support: return "Support DockFixer"
+        case .thanks: return "Say Thanks"
+        case .tip: return "Leave a Tip"
+        case .author: return "Thank the Author"
+        case .project: return "Support the Project"
+        }
+    }
+
+    /// An SF Symbol name.
+    public var symbol: String {
+        switch self {
+        case .coffee: return "cup.and.saucer.fill"
+        case .support: return "heart.fill"
+        case .thanks: return "hands.clap.fill"
+        case .tip: return "gift.fill"
+        case .author: return "face.smiling"
+        case .project: return "star.fill"
+        }
+    }
+
+    /// Any of them, the one on show included: a draw that must differ
+    /// would no longer give each the same share.
+    public static func random() -> DonateLabel {
+        allCases.randomElement()!
+    }
+}
+
+/// The Statistics line on the Settings tab: a sentence with no checkbox,
+/// which turns the statistics off or on when clicked. Off is asked about
+/// first, since the numbers are what bugs and improvements are judged by;
+/// on is not, since nothing is lost by it.
+public enum StatisticsSwitch {
+
+    public enum Click: Equatable, Sendable {
+        /// Ask "Are you sure…", and turn them off only on Disable.
+        case askBeforeDisabling
+        /// Turn them on straight away.
+        case enable
+    }
+
+    public static func click(sending: Bool) -> Click {
+        sending ? .askBeforeDisabling : .enable
+    }
+
+    /// The reason goes only with "sends": after "doesn't send" it would say
+    /// the app is kept good by not sending, the opposite of what is meant.
+    public static func sentence(sending: Bool) -> String {
+        sending ? "The app sends anonymous statistics to help make it better"
+                : "The app doesn't send anonymous statistics"
     }
 }

@@ -229,9 +229,10 @@ func usageNotificationEvent(_ t: TestRun) {
     t.expect(UUID(uuidString: shownObject["uuid"] as? String ?? "") != nil, "a fresh UUID by default")
 }
 
-/// The Buy Me a Coffee click as sent: the version, and nothing else.
+/// The Buy Me a Coffee click as sent: the words shown and the version, and
+/// nothing else.
 func usageBuyMeACoffeeEvent(_ t: TestRun) {
-    let data = UsageReport.buyMeACoffeeEvent(installID: "abc", version: "1.0.0", apiKey: "phc_test",
+    let data = UsageReport.buyMeACoffeeEvent(label: .thanks, installID: "abc", version: "1.0.0", apiKey: "phc_test",
                                              uuid: "u-2", at: utc("2026-10-19T09:30:00Z"))
     let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
     let properties = object["properties"] as? [String: Any] ?? [:]
@@ -240,7 +241,8 @@ func usageBuyMeACoffeeEvent(_ t: TestRun) {
     t.expect(object["distinct_id"] as? String == "abc", "the same install ID as the day event")
     t.expect(object["uuid"] as? String == "u-2", "the event ID given")
     t.expect(object["timestamp"] as? String == "2026-10-19T09:30:00Z", "the moment, in UTC: \(object["timestamp"] ?? "-")")
-    t.expect(Set(properties.keys) == ["version"], "nothing else is sent: \(properties.keys.sorted())")
+    t.expect(properties["label"] as? String == "thanks", "which words were clicked")
+    t.expect(Set(properties.keys) == ["label", "version"], "nothing else is sent: \(properties.keys.sorted())")
     t.expect(Set(object.keys) == ["api_key", "event", "distinct_id", "uuid", "timestamp", "properties"],
              "nothing else at the top level: \(object.keys.sorted())")
 }
@@ -290,7 +292,7 @@ func usageNotificationRetry(_ t: TestRun) {
     wait { await reporter.sendNotification(.clicked, hours: 1) }
     t.expect(reporter.pendingEventCount == 1, "a failed one waits")
     t.expect(log.entries.contains { $0.detail.hasPrefix("usage: notification clicked (1 h) not sent") }, "and says so")
-    wait { await reporter.sendBuyMeACoffee() }
+    wait { await reporter.sendBuyMeACoffee(label: .coffee) }
     t.expect(reporter.pendingEventCount == 2, "a failed Buy Me a Coffee click waits in the same queue")
 
     journal.record(.pushedOut, at: utc("2026-10-13T10:00:00Z"))
@@ -316,4 +318,28 @@ func usageCountedMoves(_ t: TestRun) {
     t.expect(ScanSummary.counts(kind: .stuck, visible: true), "a visible move counts")
     t.expect(!ScanSummary.counts(kind: .stuck, visible: false), "a move under other windows does not")
     t.expect(!ScanSummary.counts(kind: nil, visible: true), "a visible window that was not moved does not")
+}
+
+/// The Statistics line: clicking it while statistics are sent asks before
+/// turning them off; clicking it while they are not turns them on at once.
+func usageStatisticsSwitch(_ t: TestRun) {
+    t.expect(StatisticsSwitch.click(sending: true) == .askBeforeDisabling, "on: asks before turning off")
+    t.expect(StatisticsSwitch.click(sending: false) == .enable, "off: turns on without asking")
+    let on = StatisticsSwitch.sentence(sending: true)
+    let off = StatisticsSwitch.sentence(sending: false)
+    t.expect(on.hasPrefix("The app sends "), "on: \(on)")
+    t.expect(off.hasPrefix("The app doesn't send "), "off: \(off)")
+    t.expect(off == "The app doesn't send anonymous statistics", "off: no reason after it")
+}
+
+/// The donate button's words: the IDs the statistics already hold do not
+/// change, every one has words and a symbol, and the draw reaches them all.
+func usageDonateLabels(_ t: TestRun) {
+    t.expect(DonateLabel.allCases.map(\.rawValue) == ["coffee", "support", "thanks", "tip", "author", "project"],
+             "the IDs sent: \(DonateLabel.allCases.map(\.rawValue))")
+    t.expect(DonateLabel.coffee.title == "Buy Me a Coffee", "the original words keep the original ID")
+    t.expect(Set(DonateLabel.allCases.map(\.title)).count == DonateLabel.allCases.count, "no two alike")
+    t.expect(DonateLabel.allCases.allSatisfy { !$0.symbol.isEmpty }, "each has a symbol")
+    let drawn = Set((0..<400).map { _ in DonateLabel.random() })
+    t.expect(drawn == Set(DonateLabel.allCases), "each is drawn: \(drawn)")
 }

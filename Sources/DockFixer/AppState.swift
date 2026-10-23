@@ -98,6 +98,11 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// The words on the donate button: drawn at launch and again each time
+    /// the main window is put away (see `DonateLabel`). Chosen by hand on
+    /// the Debug tab, to see how each looks.
+    @Published var donateLabel = DonateLabel.random()
+
     /// Light or dark, or whatever the system is set to; chosen on the Debug
     /// tab, so only a development build offers it. Set on the application
     /// rather than on each window: a window with an appearance of its own
@@ -409,9 +414,10 @@ final class AppState: ObservableObject {
     /// a payment is Buy Me a Coffee's to count. Sent only while the
     /// statistics switch is on, as every other event.
     func buyMeACoffeeClicked() {
-        log.info("Buy Me a Coffee opened")
+        let label = donateLabel
+        log.info("Buy Me a Coffee opened (\(label.rawValue))")
         guard let usage else { return }
-        Task { await usage.sendBuyMeACoffee() }
+        Task { await usage.sendBuyMeACoffee(label: label) }
     }
 
     func moveWindows() {

@@ -1,4 +1,5 @@
 import AppKit
+import DockFixerCore
 import SwiftUI
 import UserNotifications
 
@@ -49,6 +50,15 @@ struct DebugView: View {
                         ForEach(AppState.Appearance.allCases) { Text($0.title).tag($0) }
                     }
                     .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                // The words drawn at random for the donate button, to look
+                // at each one in the footer.
+                ContentView.row("Donate") {
+                    Picker("Donate", selection: $state.donateLabel) {
+                        ForEach(DonateLabel.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
                     .labelsHidden()
                     .fixedSize()
                 }

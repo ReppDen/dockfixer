@@ -86,7 +86,7 @@ DockFixer automatically updates itself.
 
 DockFixer collects no personal data. It sends only anonymous usage statistics,
 and they are public: [dashboard](https://eu.posthog.com/shared/O63pcUH2gzDFECtm1r3HAublIhL13w).
-Turn off **Send usage statistics** in the settings and nothing is sent.
+Click the **Statistics** line in the settings to turn it off, and nothing is sent.
 
 <details>
 <summary>An example of what is sent</summary>

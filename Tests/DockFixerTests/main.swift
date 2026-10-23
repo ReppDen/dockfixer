@@ -34,6 +34,8 @@ run.suite("Usage: at most a month of unsent days") { t in MainActor.assumeIsolat
 run.suite("Usage: the notification event as sent", usageNotificationEvent)
 run.suite("Usage: the Buy Me a Coffee click as sent", usageBuyMeACoffeeEvent)
 run.suite("Usage: the moves a pass counts", usageCountedMoves)
+run.suite("Usage: the Statistics line", usageStatisticsSwitch)
+run.suite("Usage: the donate button's words", usageDonateLabels)
 run.suite("Usage: a notification event that could not be sent") { t in MainActor.assumeIsolated { usageNotificationRetry(t) } }
 run.suite("Usage history: counting by UTC day and reading back", usageHistoryRecording)
 run.suite("Usage history: a partial, broken or newer file", usageHistoryTolerance)

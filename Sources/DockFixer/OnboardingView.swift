@@ -67,7 +67,11 @@ private struct StepLayout<Icon: View, Buttons: View>: View {
             VStack(spacing: 12) { buttons }
                 .padding(.top, 24)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Not `maxHeight: .infinity`: the window is sized to its contents
+        // (`.windowResizability(.contentSize)`), and contents with no height
+        // limit let a double-click on the title bar stretch it to the full
+        // height of the screen. The `minHeight` around it centres this.
+        .frame(maxWidth: .infinity)
     }
 }
 

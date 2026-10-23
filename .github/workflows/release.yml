@@ -187,11 +187,13 @@ jobs:
       - name: Update the Homebrew cask
         env:
           TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -o pipefail
           mkdir -p ~/.ssh
           printf '%s\n' "$TAP_DEPLOY_KEY" > ~/.ssh/tap
           chmod 600 ~/.ssh/tap
-          curl -sSf https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > ~/.ssh/known_hosts
+          curl -sSf -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > ~/.ssh/known_hosts
           export GIT_SSH_COMMAND="ssh -i ~/.ssh/tap -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
           git clone git@github.com:ReppDen/homebrew-tap.git "$RUNNER_TEMP/tap"
           mkdir -p "$RUNNER_TEMP/tap/Casks"

@@ -99,8 +99,8 @@ final class AppState: ObservableObject {
     }
 
     /// The words on the donate button: drawn at launch and again each time
-    /// the main window is put away (see `DonateLabel`). Chosen by hand on
-    /// the Debug tab, to see how each looks.
+    /// the main window stops being seen (see `DonateRotation`). Chosen by
+    /// hand on the Debug tab, to see how each looks.
     @Published var donateLabel = DonateLabel.random()
 
     /// Light or dark, or whatever the system is set to; chosen on the Debug

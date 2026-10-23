@@ -82,6 +82,7 @@ private struct WindowOpener: View {
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var pendingLoginHide: DispatchWorkItem?
+    private var donateRotation = DonateRotation()
 
     /// SwiftUI's `openWindow`, taking a scene's ID: the only way to rebuild a
     /// window scene after it has been closed. Supplied by the menu-bar icon
@@ -139,6 +140,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated {
                 guard NSApp.isActive, let window = note.object as? NSWindow, Self.isMainWindow(window) else { return }
                 StatusItemController.shared.setBadge(false)
+            }
+        }
+
+        // New words for the donate button whenever the window drops out of
+        // sight, by any way at all; see DonateRotation. The occlusion state is
+        // the one report every way shares: closing, Command-H, another window
+        // on top, another Space.
+        NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, let window = note.object as? NSWindow, Self.isMainWindow(window) else { return }
+                let visible = window.occlusionState.contains(.visible)
+                guard self.donateRotation.windowVisibilityChanged(to: visible),
+                      let state = AppState.current else { return }
+                state.donateLabel = .random()
+                state.log.debug("donate words for next time: \(state.donateLabel.rawValue)")
             }
         }
 
@@ -340,9 +356,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for window in NSApp.windows where Self.isMainWindow(window) {
             window.orderOut(nil)
         }
-        // The window survives hidden, and its views with it, so the next
-        // opening shows other words only if they are drawn here.
-        MainActor.assumeIsolated { AppState.current?.donateLabel = .random() }
         retreatToMenuBar()
     }
 

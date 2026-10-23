@@ -490,7 +490,8 @@ public enum PostHog {
 }
 
 /// The words on the donate button. One is picked at random each time the
-/// window is put away, so the next opening may show another, and the click
+/// window stops being seen (`DonateRotation`), so every time it appears again
+/// it may show another, and the click
 /// carries which one it was: the statistics then tell which words are
 /// clicked most. Picked uniformly, each is shown about as often as the
 /// others, so the clicks alone compare them and nothing is sent on showing.
@@ -529,6 +530,25 @@ public enum DonateLabel: String, CaseIterable, Sendable {
     /// would no longer give each the same share.
     public static func random() -> DonateLabel {
         allCases.randomElement()!
+    }
+}
+
+/// When the donate button gets new words: the moment the window stops being
+/// seen, however that happens — closed, hidden with Command-H, covered whole
+/// by another window, left on another Space. Drawn then rather than when it
+/// appears, so the words never change in front of anyone, and every
+/// appearance, by whatever way, shows words drawn since the last one.
+public struct DonateRotation: Sendable {
+    private var visible = false
+
+    public init() {}
+
+    /// The window's visibility as the system reports it. True when new words
+    /// are to be drawn: only on the change from seen to unseen, so a report
+    /// repeated while it stays hidden draws nothing.
+    public mutating func windowVisibilityChanged(to visible: Bool) -> Bool {
+        defer { self.visible = visible }
+        return self.visible && !visible
     }
 }
 

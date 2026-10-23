@@ -343,3 +343,16 @@ func usageDonateLabels(_ t: TestRun) {
     let drawn = Set((0..<400).map { _ in DonateLabel.random() })
     t.expect(drawn == Set(DonateLabel.allCases), "each is drawn: \(drawn)")
 }
+
+/// New donate words are drawn when the window stops being seen, once, and
+/// never while it is on screen.
+func usageDonateRotation(_ t: TestRun) {
+    var rotation = DonateRotation()
+    t.expect(!rotation.windowVisibilityChanged(to: false), "hidden before it was ever shown: nothing to replace")
+    t.expect(!rotation.windowVisibilityChanged(to: true), "appearing: the words drawn before stay")
+    t.expect(!rotation.windowVisibilityChanged(to: true), "still on screen: no change")
+    t.expect(rotation.windowVisibilityChanged(to: false), "gone from view: new words for next time")
+    t.expect(!rotation.windowVisibilityChanged(to: false), "still hidden: drawn once only")
+    t.expect(!rotation.windowVisibilityChanged(to: true), "back: shows those words")
+    t.expect(rotation.windowVisibilityChanged(to: false), "gone again: drawn again")
+}

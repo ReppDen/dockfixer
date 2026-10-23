@@ -1,6 +1,7 @@
 APP_NAME  := DockFixer
 BUNDLE_ID := com.github.reppden.dockfixer
-VERSION   := 1.0.0
+# release.yml passes the tag's version; local builds say "development".
+VERSION   := development
 
 # "-" means an ad-hoc signature: enough for CI to check that the bundle builds.
 # macOS ties the Accessibility grant to the code hash of an ad-hoc signed app,

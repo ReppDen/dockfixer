@@ -153,6 +153,10 @@ make dev                 # builds, signs with a local certificate, installs to /
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the rest.
 
+## Support the project
+
+Show your support on [Buy Me a Coffee](https://buymeacoffee.com/reppden).
+
 ## License
 
 MIT, see [LICENSE](LICENSE). Third-party material:

@@ -78,9 +78,12 @@ readme-icon: $(ICNS)
 	sips -z 512 512 "$(BUILD_DIR)/icon-1024.png" --out docs/icon.png >/dev/null
 	@echo "wrote docs/icon.png"
 
-## readme-hero: redraw docs/hero.png, the before/after picture at the top of the README
+## readme-hero: redraw the README's before/after pictures, the top one and one per switch
 readme-hero:
-	swift Scripts/make-hero.swift docs/hero.png
+	swift Scripts/make-hero.swift docs/hero.png bottom
+	swift Scripts/make-hero.swift docs/move-from-under-dock.png left
+	swift Scripts/make-hero.swift docs/stick-to-dock.png stick
+	swift Scripts/make-hero.swift docs/fill-empty-space.png fill
 
 $(ICNS): Scripts/make-icon.swift
 	mkdir -p "$(ICONSET)"

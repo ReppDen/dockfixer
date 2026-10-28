@@ -11,13 +11,43 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
 </p>
 
-<p align="center"><img src="docs/hero.png" width="800" alt="Before: a window whose bottom edge is hidden behind the Dock. After: the same window ending just above the Dock."></p>
+The Dock and windows on macOS are not friends. A window often opens partly under
+the Dock. When an app opens or quits, the Dock changes size. Now the windows next
+to it are under it, or there is a gap between them and the Dock. I got tired of
+moving windows back by hand. So I made DockFixer. Free and open source.
 
-macOS lets windows sit under the Dock. Unplug a monitor and your windows land on
-the laptop screen with their bottom edge behind it; an app restores a saved
-window size and its status bar is under the Dock again. DockFixer notices these
-windows and moves them just clear of the Dock, so you don't have to drag and
-resize them by hand.
+## What it does
+
+DockFixer works with the Dock on the left, at the bottom or on the right.
+
+### Moves windows out from under the Dock
+
+A window can end up under the Dock when it opens, when you move it to another
+screen or when you unplug a display. DockFixer moves it out, so you can use all
+of it.
+
+<p align="center"><img src="docs/move-from-under-dock.png" width="800" alt="Before: the Dock on the left covers the side of a window. After: the same window just to the right of the Dock."></p>
+
+### Sticks windows to the Dock
+
+The Dock gets bigger or smaller when apps open and close. A window that was
+next to the Dock moves with it, like a magnet.
+
+<p align="center"><img src="docs/stick-to-dock.png" width="800" alt="Before: the Dock on the left got smaller and left a gap next to a window. After: the window stretched and is next to the Dock again."></p>
+
+### Fills the space the Dock leaves
+
+When the Dock moves to another display, for example because you plugged in a
+monitor, windows on the display it left stretch or slide into the empty space.
+
+<p align="center"><img src="docs/fill-empty-space.png" width="800" alt="Before: the Dock on the left moved away and left an empty strip next to a window. After: the window reaches the left edge of the screen."></p>
+
+DockFixer also shows how many windows it moved and how much time that saved you.
+
+Some windows cannot be moved through the Accessibility API (fixed-size dialogs,
+some Java and Qt apps), and windows on other Spaces are only seen when you
+switch to them. Full-screen and minimized windows are left alone. Anything
+DockFixer tried and could not do is written to the log with the reason.
 
 ## Install
 
@@ -60,23 +90,6 @@ Apple checks only apps from paid developer accounts. Allow it once:
 Moving another app's windows is only possible through the Accessibility API.
 On first launch DockFixer shows a button that opens **System Settings → Privacy
 & Security → Accessibility**; turn on the switch next to DockFixer.
-
-## What it does
-
-- **Moves windows out from under the Dock.** A window can end up under the Dock
-  when it opens, when you move it to another screen or when you unplug a
-  display. DockFixer moves it out, so you can use all of it.
-- **Keeps windows next to the Dock, like a magnet.** The Dock gets bigger or
-  smaller when apps open and close. A window that was next to the Dock moves
-  with it.
-- **Fills the space the Dock leaves.** When the Dock moves to another display,
-  for example because you plugged in a monitor, windows on the display it left
-  stretch or slide into the strip it used.
-
-Some windows cannot be moved through the Accessibility API (fixed-size dialogs,
-some Java and Qt apps), and windows on other Spaces are only seen when you
-switch to them. Full-screen and minimized windows are left alone. Anything
-DockFixer tried and could not do is written to the log with the reason.
 
 ## Updates
 

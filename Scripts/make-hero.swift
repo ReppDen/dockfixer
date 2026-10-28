@@ -1,16 +1,23 @@
 #!/usr/bin/env swift
 
-// Draws the picture at the top of the README: a window sliding under the Dock,
-// and the same window sitting just above it. Drawn rather than screenshotted so
-// that it shows exactly the one thing DockFixer does, with no real desktop, app
-// or name in it, and so that it can be redrawn when the icon's colours change.
+// Draws the before/after pictures of the README, one per thing DockFixer does:
+// a window under the Dock and the same window just clear of it (with the Dock
+// at the bottom for the top of the page, and on the left), a window following
+// a Dock that got smaller, and a window filling the space of a Dock that went
+// to another display. The last two can be drawn with the Dock on the left or
+// at the bottom.
+//
+// Drawn rather than screenshotted so that each shows exactly the one thing
+// DockFixer does, with no real desktop, app or name in it, and so that it can
+// be redrawn when the icon's colours change.
 //
 // The background is transparent and each screen brings its own wallpaper, so
 // the picture sits on GitHub's light and dark page alike. The only things drawn
 // straight onto the page — the arrow and the two captions — are a mid grey that
 // reads on both.
 //
-// Usage: swift Scripts/make-hero.swift <output.png>   (or: make readme-hero)
+// Usage: swift Scripts/make-hero.swift <output.png> [scene]   (or: make readme-hero)
+// Scenes: bottom, left, stick, fill, stick-bottom, fill-bottom.
 
 import AppKit
 import CoreGraphics
@@ -18,11 +25,25 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-guard CommandLine.arguments.count == 2 else {
-    FileHandle.standardError.write(Data("usage: make-hero.swift <output.png>\n".utf8))
+enum Scene: String {
+    case bottom, left, stick, fill
+    case stickBottom = "stick-bottom"
+    case fillBottom = "fill-bottom"
+}
+
+guard (2...3).contains(CommandLine.arguments.count),
+      let scene = Scene(rawValue: CommandLine.arguments.count == 3 ? CommandLine.arguments[2] : "bottom")
+else {
+    FileHandle.standardError.write(Data("usage: make-hero.swift <output.png> [bottom|left|stick|fill|stick-bottom|fill-bottom]\n".utf8))
     exit(2)
 }
 let output = URL(fileURLWithPath: CommandLine.arguments[1])
+
+enum DockSide {
+    case bottom, left
+}
+
+let side: DockSide = [.bottom, .stickBottom, .fillBottom].contains(scene) ? .bottom : .left
 
 // Laid out in points and rendered at 2x, so the README can show it at its point
 // size and a Retina display still gets every pixel.
@@ -64,12 +85,47 @@ func fill(_ rect: CGRect, radius: CGFloat, _ color: CGColor) {
 let screenSize = CGSize(width: 520, height: 325)
 let menuBarHeight: CGFloat = 15
 
-/// The Dock of a screen whose frame is `screen`: centred at the bottom, the
-/// default place, so it is recognised at a glance.
-func dockFrame(in screen: CGRect) -> CGRect {
-    let size = CGSize(width: 310, height: 46)
-    return CGRect(x: screen.midX - size.width / 2, y: screen.minY + 6,
-                  width: size.width, height: size.height)
+/// How far a window that DockFixer put next to the Dock ends up from it. The
+/// usable area starts right where the Dock ends, so a corrected window sits
+/// flush against it; one point is enough to keep the two shapes apart.
+let flush: CGFloat = 1
+
+/// The Dock as it is drawn: how many apps it holds and how big their tiles are.
+struct DockLook {
+    var tiles: Int
+    var tile: CGFloat
+}
+
+/// A left Dock is shorter than a bottom one is wide, because the screen is
+/// shorter than it is wide; its tiles are a little smaller to fit.
+let usualDock = side == .bottom ? DockLook(tiles: 7, tile: 32) : DockLook(tiles: 7, tile: 30)
+
+/// The Dock in the "stick" pictures, before and after it got smaller. It holds
+/// fewer apps, so that the bigger one still fits the screen and the change is
+/// big enough for an arrow to span it.
+let bigDock = side == .bottom ? DockLook(tiles: 5, tile: 60) : DockLook(tiles: 5, tile: 52)
+let smallDock = side == .bottom ? DockLook(tiles: 5, tile: 32) : DockLook(tiles: 5, tile: 24)
+
+func tileGap(_ look: DockLook) -> CGFloat {
+    side == .bottom ? (look.tile * 9 / 32).rounded() : 6
+}
+
+/// The Dock of a screen whose frame is `screen`: centred along its edge, as the
+/// real one is, so it is recognised at a glance. On the left it is centred on
+/// the part of the screen below the menu bar.
+func dockFrame(in screen: CGRect, _ look: DockLook = usualDock) -> CGRect {
+    let run = CGFloat(look.tiles) * look.tile + CGFloat(look.tiles - 1) * tileGap(look)
+    switch side {
+    case .bottom:
+        let size = CGSize(width: run + 32, height: look.tile + 14)
+        return CGRect(x: screen.midX - size.width / 2, y: screen.minY + 6,
+                      width: size.width, height: size.height)
+    case .left:
+        let size = CGSize(width: look.tile + 16, height: run + 16)
+        let middle = (screen.minY + screen.maxY - menuBarHeight) / 2
+        return CGRect(x: screen.minX + 6, y: middle - size.height / 2,
+                      width: size.width, height: size.height)
+    }
 }
 
 func drawWallpaper(_ screen: CGRect) {
@@ -109,26 +165,32 @@ func drawWallpaper(_ screen: CGRect) {
     context.restoreGState()
 }
 
-func drawDock(in screen: CGRect) {
-    let dock = dockFrame(in: screen)
+func drawDock(in screen: CGRect, _ look: DockLook = usualDock) {
+    let dock = dockFrame(in: screen, look)
     // Translucent, as the real one is, so the window under it in the "before"
-    // picture shows through and reads as underneath rather than cut off.
-    fill(dock, radius: 13, rgb(255, 255, 255, 0.42))
-    context.setStrokeColor(rgb(255, 255, 255, 0.6))
+    // picture shows through and reads as underneath rather than cut off. Dark
+    // rather than white, so that over a white window it still reads as a
+    // separate shape.
+    fill(dock, radius: 13, rgb(28, 28, 44, 0.5))
+    context.setStrokeColor(rgb(255, 255, 255, 0.55))
     context.setLineWidth(1)
     context.addPath(roundedRect(dock.insetBy(dx: 0.5, dy: 0.5), radius: 12.5))
     context.strokePath()
 
-    let tiles = [rgb(52, 120, 246), rgb(255, 159, 10), rgb(48, 209, 88), rgb(255, 69, 58),
-                 rgb(94, 92, 230), rgb(100, 210, 255), rgb(142, 142, 147)]
-    let tile: CGFloat = 32
-    let gap: CGFloat = 9
-    let run = CGFloat(tiles.count) * tile + CGFloat(tiles.count - 1) * gap
-    for (index, color) in tiles.enumerated() {
-        let rect = CGRect(x: dock.midX - run / 2 + CGFloat(index) * (tile + gap),
-                          y: dock.midY - tile / 2, width: tile, height: tile)
+    let colors = [rgb(52, 120, 246), rgb(255, 159, 10), rgb(48, 209, 88), rgb(255, 69, 58),
+                  rgb(255, 214, 10), rgb(100, 210, 255), rgb(84, 84, 92)]
+    let tile = look.tile
+    let gap = tileGap(look)
+    let run = CGFloat(look.tiles) * tile + CGFloat(look.tiles - 1) * gap
+    for (index, color) in colors.prefix(look.tiles).enumerated() {
+        let step = CGFloat(index) * (tile + gap)
+        // The first app is at the left end of a bottom Dock and at the top end
+        // of a left one, as on a real Mac.
+        let rect = side == .bottom
+            ? CGRect(x: dock.midX - run / 2 + step, y: dock.midY - tile / 2, width: tile, height: tile)
+            : CGRect(x: dock.midX - tile / 2, y: dock.midY + run / 2 - step - tile, width: tile, height: tile)
         context.saveGState()
-        context.addPath(roundedRect(rect, radius: 8))
+        context.addPath(roundedRect(rect, radius: tile / 4))
         context.clip()
         let shine = CGGradient(colorsSpace: sRGB,
                                colors: [color.copy(alpha: 0.75)!, color] as CFArray,
@@ -137,6 +199,52 @@ func drawDock(in screen: CGRect) {
                                    end: CGPoint(x: rect.midX, y: rect.minY), options: [])
         context.restoreGState()
     }
+}
+
+/// Where a Dock used to be: a dashed outline, so the "before" picture shows
+/// what the window was resting against and why it stops where it does.
+func drawFormerDock(_ dock: CGRect) {
+    context.saveGState()
+    fill(dock, radius: 13, rgb(255, 255, 255, 0.12))
+    context.setStrokeColor(rgb(255, 255, 255, 0.85))
+    context.setLineWidth(1.5)
+    context.setLineDash(phase: 0, lengths: [6, 4])
+    context.addPath(roundedRect(dock.insetBy(dx: 0.75, dy: 0.75), radius: 12.25))
+    context.strokePath()
+    context.restoreGState()
+}
+
+/// The white arrows drawn on a "before" screen, saying what is about to
+/// happen. A dark shadow keeps them readable on every part of the wallpaper.
+let hintColor = rgb(255, 255, 255)
+
+func drawArrow(from start: CGPoint, to end: CGPoint, bothEnds: Bool = false, color: CGColor = hintColor) {
+    let angle = atan2(end.y - start.y, end.x - start.x)
+    // A short arrow gets smaller heads, or two of them meet in a blob.
+    let head = min(7, hypot(end.x - start.x, end.y - start.y) / (bothEnds ? 3 : 2))
+    func drawHead(at tip: CGPoint, pointing angle: CGFloat) {
+        context.move(to: CGPoint(x: tip.x - head * cos(angle - .pi / 4), y: tip.y - head * sin(angle - .pi / 4)))
+        context.addLine(to: tip)
+        context.addLine(to: CGPoint(x: tip.x - head * cos(angle + .pi / 4), y: tip.y - head * sin(angle + .pi / 4)))
+    }
+    context.saveGState()
+    if color == hintColor {
+        context.setShadow(offset: .zero, blur: 4, color: rgb(0, 0, 0, 0.45))
+    }
+    context.setStrokeColor(color)
+    context.setLineWidth(3)
+    context.setLineCap(.round)
+    context.setLineJoin(.round)
+    context.beginTransparencyLayer(auxiliaryInfo: nil)
+    context.move(to: start)
+    context.addLine(to: end)
+    drawHead(at: end, pointing: angle)
+    if bothEnds {
+        drawHead(at: start, pointing: angle + .pi)
+    }
+    context.strokePath()
+    context.endTransparencyLayer()
+    context.restoreGState()
 }
 
 /// A plain document window: title bar with the three lights, a sidebar, some
@@ -199,11 +307,52 @@ func drawWindow(_ window: CGRect) {
     context.restoreGState()
 }
 
-/// The window's left and right edges and its top are the same in both
-/// pictures; only the bottom differs, so the eye goes straight to it.
+/// With the Dock at the bottom, the window's left and right edges and its top
+/// are the same in both pictures; only the bottom differs, so the eye goes
+/// straight to it. The window reaches the bottom of the screen, so DockFixer
+/// has to shorten it as well as lift it.
 func windowFrame(in screen: CGRect, bottom: CGFloat) -> CGRect {
     let top = screen.maxY - menuBarHeight - 20
     return CGRect(x: screen.minX + 75, y: bottom, width: 370, height: top - bottom)
+}
+
+/// With the Dock on the left, the window is narrower than the screen, so
+/// DockFixer slides it out without changing its size: only its left edge
+/// differs between the pictures. The Dock covers the sidebar, which is what
+/// anyone would miss. The window stops short of the bottom of the screen to
+/// leave room for the arrow under it.
+func windowFrame(in screen: CGRect, left: CGFloat) -> CGRect {
+    let top = screen.maxY - menuBarHeight - 20
+    let bottom = screen.minY + 44
+    return CGRect(x: left, y: bottom, width: 370, height: top - bottom)
+}
+
+/// A window filling all the room the Dock leaves it, up to the menu bar and out
+/// to the other edges of the screen. It touches the Dock's edge and the edge
+/// across from it, so when the Dock gets smaller or leaves, DockFixer stretches
+/// it into the space rather than sliding it; `dockEdge` is where it starts on
+/// the Dock's side. With the Dock on the left, `roomBelow` keeps the window off
+/// the bottom of the screen, to leave room for an arrow under it; the other
+/// axis is not the one being stretched, so this changes nothing about what
+/// DockFixer does with it.
+func maximizedWindow(in screen: CGRect, dockEdge: CGFloat, roomBelow: CGFloat = 0) -> CGRect {
+    let top = screen.maxY - menuBarHeight
+    switch side {
+    case .bottom:
+        return CGRect(x: screen.minX + 75, y: dockEdge, width: 370, height: top - dockEdge)
+    case .left:
+        let bottom = screen.minY + roomBelow
+        return CGRect(x: dockEdge, y: bottom, width: screen.maxX - dockEdge, height: top - bottom)
+    }
+}
+
+/// Room under the window in the "stick" picture with the Dock on the left, the
+/// same as in the "move" one.
+let stickRoomBelow: CGFloat = side == .left ? 44 : 0
+
+/// The edge of the Dock that faces the windows.
+func innerEdge(of dock: CGRect) -> CGFloat {
+    side == .bottom ? dock.maxY : dock.maxX
 }
 
 let caption = NSColor(srgbRed: 128 / 255, green: 136 / 255, blue: 148 / 255, alpha: 1)
@@ -223,17 +372,75 @@ NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false
 let before = CGRect(origin: CGPoint(x: 40, y: 75), size: screenSize)
 let after = CGRect(origin: CGPoint(x: 640, y: 75), size: screenSize)
 
-// Before: the window reaches almost to the bottom of the screen, and the Dock,
-// drawn over it, covers its status bar.
 drawWallpaper(before)
-drawWindow(windowFrame(in: before, bottom: before.minY + 10))
-drawDock(in: before)
-drawCaption("Before", under: before)
-
-// After: the bottom edge sits just above the Dock, the top has not moved.
 drawWallpaper(after)
-drawWindow(windowFrame(in: after, bottom: dockFrame(in: after).maxY + 5))
-drawDock(in: after)
+switch scene {
+case .bottom:
+    // Before: the Dock, drawn over the window, covers its status bar. After:
+    // the bottom edge sits on the Dock, the top has not moved.
+    drawWindow(windowFrame(in: before, bottom: before.minY + 10))
+    drawDock(in: before)
+    drawWindow(windowFrame(in: after, bottom: dockFrame(in: after).maxY + flush))
+    drawDock(in: after)
+
+case .left:
+    // Before: the Dock covers the window's sidebar, and an arrow under the
+    // window shows where it is about to go. After: it sits against the Dock.
+    let window = windowFrame(in: before, left: before.minX + 14)
+    drawWindow(window)
+    drawDock(in: before)
+    let arrowY = (before.minY + window.minY) / 2
+    drawArrow(from: CGPoint(x: window.minX + 60, y: arrowY), to: CGPoint(x: window.minX + 130, y: arrowY))
+    drawWindow(windowFrame(in: after, left: dockFrame(in: after).maxX + flush))
+    drawDock(in: after)
+
+case .stick, .stickBottom:
+    // Before: the Dock has just got smaller. Its former size is dashed, with an
+    // arrow across the difference, and the window still ends where the bigger
+    // Dock began; a second arrow at the window's edge says it will stretch.
+    // After: the window reaches the smaller Dock, its far edges unmoved.
+    let former = dockFrame(in: before, bigDock)
+    let dock = dockFrame(in: before, smallDock)
+    drawFormerDock(former)
+    let window = maximizedWindow(in: before, dockEdge: innerEdge(of: former) + flush, roomBelow: stickRoomBelow)
+    drawWindow(window)
+    drawDock(in: before, smallDock)
+    switch side {
+    case .bottom:
+        let x = dock.maxX + (former.maxX - dock.maxX) / 2
+        drawArrow(from: CGPoint(x: x, y: dock.maxY + 2), to: CGPoint(x: x, y: former.maxY - 2), bothEnds: true)
+        let y = window.minY + 70
+        drawArrow(from: CGPoint(x: window.maxX + 22, y: y - 45), to: CGPoint(x: window.maxX + 22, y: y + 45),
+                  bothEnds: true)
+    case .left:
+        let y = dock.minY - 22
+        drawArrow(from: CGPoint(x: dock.maxX + 2, y: y), to: CGPoint(x: former.maxX - 2, y: y), bothEnds: true)
+        let arrowY = (before.minY + window.minY) / 2
+        drawArrow(from: CGPoint(x: window.minX + 16, y: arrowY), to: CGPoint(x: window.minX + 96, y: arrowY),
+                  bothEnds: true)
+    }
+    drawWindow(maximizedWindow(in: after, dockEdge: innerEdge(of: dockFrame(in: after, smallDock)) + flush,
+                               roomBelow: stickRoomBelow))
+    drawDock(in: after, smallDock)
+
+case .fill, .fillBottom:
+    // Before: the Dock has gone to another display, and the window still ends
+    // where it began; an arrow across the empty space shows where it will
+    // stretch. After: the window reaches the edge of the screen.
+    let former = dockFrame(in: before)
+    drawFormerDock(former)
+    let window = maximizedWindow(in: before, dockEdge: innerEdge(of: former) + flush)
+    drawWindow(window)
+    switch side {
+    case .bottom:
+        drawArrow(from: CGPoint(x: window.midX, y: window.minY - 6), to: CGPoint(x: window.midX, y: before.minY + 8))
+    case .left:
+        drawArrow(from: CGPoint(x: window.minX - 6, y: window.midY), to: CGPoint(x: before.minX + 8, y: window.midY))
+    }
+    let screenEdge = side == .bottom ? after.minY : after.minX
+    drawWindow(maximizedWindow(in: after, dockEdge: screenEdge))
+}
+drawCaption("Before", under: before)
 drawCaption("After", under: after)
 
 // The arrow between them.
